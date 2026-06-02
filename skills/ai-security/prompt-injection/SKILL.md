@@ -13,7 +13,7 @@ phase: [build, review, operate]
 frameworks: [OWASP-LLM01-2025, MITRE-ATLAS]
 difficulty: advanced
 time_estimate: "30-60min"
-version: "1.0.2"
+version: "1.0.3"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -59,9 +59,11 @@ Identify every point where user-supplied or externally sourced content reaches t
 2. **External content sources** — Web pages fetched by browsing tools, documents loaded into RAG pipelines, email bodies, database records, calendar entries, third-party API responses, and any other data source the LLM reads but the user does not directly control at query time.
 3. **System prompt construction** — How the system prompt is assembled, whether it is static or dynamically composed, and whether any user-influenced data (e.g., user profile fields, prior conversation history) is interpolated into it.
 4. **Tool and plugin interfaces** — Any tools the LLM can invoke (code execution, web search, file system access, API calls), including what parameters are LLM-controlled and what side effects each tool can produce.
-5. **Multi-turn context** — How conversation history is managed, whether prior turns are truncated or summarized, and whether an attacker can influence future context through earlier messages.
+5. **Tool result payloads** — Data returned by tools before it re-enters the model context, including ticket comments, CRM fields, document text, emails, calendar entries, search results, API payloads, and other internal records that may contain user-controlled text.
+6. **Output and rendering sinks** — Places where model output is displayed, rendered, forwarded, logged, exported, or used to build follow-up tool calls. Include markdown renderers, HTML renderers, email composers, ticket updaters, chat transcripts, webhook payloads, and audit logs.
+7. **Multi-turn context** — How conversation history is managed, whether prior turns are truncated or summarized, and whether an attacker can influence future context through earlier messages.
 
-**Deliverable:** A table or diagram listing each input surface, its data type, trust level, and whether it flows into the system prompt, user prompt, or tool arguments.
+**Deliverable:** A table or diagram listing each input surface, its data type, trust level, original writer, provenance metadata, and whether it flows into the system prompt, user prompt, tool result, tool arguments, rendered output, or persistent memory.
 
 ---
 
@@ -92,11 +94,28 @@ For each external content source identified in Step 1, determine whether an adve
 - **Database records** — If user-generated content stored in a database is later retrieved as LLM context, any user who can write to that database is an injection vector.
 - **File uploads and document processing** — PDFs, spreadsheets, and other documents can contain text that, when extracted and sent to the LLM, functions as injected instructions.
 - **API responses** — Third-party APIs whose responses are fed into the LLM context could be compromised or manipulated.
+- **Internal tool results with user-controlled fields** — Treat internal tools as possible indirect injection carriers when their payloads include customer tickets, CRM notes, issue comments, email bodies, document excerpts, chat messages, calendar descriptions, contact fields, or any record lower-privileged users can create or edit.
 
 **What to look for in code:**
 - Document loaders, web scrapers, or API clients whose output is inserted into prompts
 - RAG retrieval pipelines that do not sanitize or attribute retrieved content
 - Absence of content provenance tracking (the LLM cannot distinguish trusted instructions from retrieved content)
+
+### 3.1 Tool Result Provenance Tracing
+
+For each tool result, trace who or what originally wrote the data before treating the tool itself as trusted. A trusted connector can still return untrusted content.
+
+**What to inspect:**
+- Original writer and last writer of the payload, not only the tool name or API hostname.
+- Source system, tenant, object type, object ID, timestamp, and trust tier where available.
+- Whether lower-privileged users, external customers, vendors, or unauthenticated sources can write to fields returned by the tool.
+- Whether the application preserves source labels when tool results are summarized, cached, embedded into a vector store, stored in memory, or passed to another agent.
+- Whether multi-agent handoffs retain provenance or launder untrusted content into a trusted-looking assistant, planner, or reviewer message.
+
+**False-positive calibration for benign RAG use:**
+- Do not classify a benign summarizer as high risk solely because retrieved text contains adversarial-looking language. If retrieved content is quoted or cited as untrusted evidence, cannot trigger tools or state changes, cannot modify system policy, and is constrained by output schema or citation validation, the issue is usually Low or Informational.
+- Escalate severity when retrieved or tool-returned content can influence tool arguments, change persistent memory, select recipients or destinations, alter authorization decisions, produce outbound messages, or reach a renderer that can leak sensitive context.
+- Record the specific control that keeps retrieved content as data. Examples include role separation, explicit source labels, deterministic output validation, independent tool authorization, renderer sanitization, and no write-capable tools in the same context.
 
 ---
 
@@ -141,6 +160,9 @@ The attacker causes the model to include sensitive data in its output or to tran
 - Does the model have access to sensitive data (PII, credentials, internal documents) that could be included in responses?
 - Can tool calls be used to send data to arbitrary external endpoints?
 - Are outputs filtered for sensitive data patterns?
+- Are markdown and HTML outputs sanitized before rendering, including remote images, iframes, forms, scripts, tracking pixels, and auto-fetched resources?
+- Are model-produced external URLs blocked, rewritten, proxied, or allowlisted when the model had access to sensitive context?
+- Do links use safe redirect, no-referrer, and opener-isolation controls so clicking a model-produced link cannot leak secrets through URLs, referrers, or window access?
 
 ### 4.5 Jailbreaking
 
@@ -174,6 +196,19 @@ Evaluate which of the following mitigations are implemented and how effectively.
 - Are high-impact or irreversible actions (sending emails, modifying data, executing code) gated by human confirmation?
 - Is the confirmation prompt designed so the human can meaningfully evaluate the action before approving?
 - Are there thresholds for when human review is required vs. when automated execution is permitted?
+- Is the approval UI generated by trusted application code, not by model text that could be influenced by the same prompt injection?
+
+### 5.3.1 Canonical Action Review for Tool Calls
+
+Human approval and policy checks must evaluate the fully resolved canonical action, not only the model's natural-language summary or the pre-resolution function arguments.
+
+**What to evaluate:**
+- Policy enforcement runs after defaults, aliases, templates, environment variables, redirects, recipient resolution, attachment expansion, nested field expansion, and URL normalization have been applied.
+- The approver sees the canonical tool name, operation, destination, account or auth context, data scope, recipients, `to`/`cc`/`bcc`, headers, subject, body, links, attachments, file paths, query filters, monetary amounts, destructive flags, and hidden metadata that will actually execute.
+- The UI shows material differences between the model-requested action and the resolved action, especially added recipients, expanded groups, external domains, broader queries, or attached sensitive files.
+- The execution layer revalidates authorization immediately before running the tool and fails closed if approval state, user permissions, or canonical parameters change.
+- Batch actions are decomposed or summarized with enough detail for meaningful review; a low-risk batch must not hide one high-risk sub-action.
+- Approval decisions are bound to the canonical parameter hash or equivalent immutable representation so injected content cannot smuggle changed parameters after approval.
 
 ### 5.4 Output Filtering
 
@@ -181,10 +216,23 @@ Evaluate which of the following mitigations are implemented and how effectively.
 - Is there detection for sensitive data (PII, credentials, system prompt content) in outputs?
 - Are rendered outputs (markdown, HTML) sanitized to prevent exfiltration via image tags or links?
 
+### 5.4.1 Renderer and Output-Sink Controls
+
+Renderer policy is part of prompt injection defense because model output can become an active exfiltration or action surface once displayed.
+
+**What to evaluate:**
+- Remote images, tracking pixels, iframes, forms, scripts, and auto-fetching embeds are disabled, stripped, or proxied for model-generated markdown and HTML.
+- HTML is sanitized before preview, logging, export, ticket creation, email composition, or browser rendering. Markdown renderers must not pass raw HTML through by default.
+- External links are rewritten through a safe redirect service or allowlisted, and rendered with `rel="noopener noreferrer"` plus referrer controls where supported.
+- Model-produced URLs are blocked or require explicit review when the model had access to secrets, PII, internal documents, code, or privileged tool results.
+- Output validation runs before any sink that can send data outside the trust boundary, including chat UIs, emails, tickets, webhooks, logs, PDFs, and shared documents.
+- Citations and retrieved snippets remain visually and structurally separated from assistant instructions so quoted untrusted content cannot become clickable or executable UI.
+
 ### 5.5 Canary Tokens in System Prompts
 
 - Does the system prompt include canary strings that, if they appear in the model's output, indicate a prompt leaking attempt?
 - Is there automated detection and alerting when canary tokens appear in responses?
+- Are canary tokens treated only as detection and telemetry, not as a primary preventive control? A missing canary alert does not prove the prompt injection path is safe.
 
 ### 5.6 Instruction Hierarchy
 
@@ -246,7 +294,7 @@ Each finding should be assigned a severity based on potential impact:
 - Recommendation: [Specific defensive measure to implement]
 
 ### Defense Posture Summary
-[Table summarizing which defenses from Step 5 are present, partially present, or absent]
+[Table summarizing which defenses from Step 5 are present, partially present, or absent. Include tool result provenance, canonical action review, renderer/output-sink controls, and canary-token telemetry separately.]
 
 ### Recommendations
 [Prioritized list of defensive improvements]
@@ -274,6 +322,12 @@ Each finding should be assigned a severity based on potential impact:
 4. **Granting the LLM excessive tool access.** Applications that give the LLM access to powerful tools (file system writes, email sending, database modifications, code execution) without independent authorization checks create high-severity privilege escalation risk. Every tool the LLM can invoke should have its own authorization gate that does not depend on the LLM's judgment.
 
 5. **Failing to treat retrieved content as untrusted.** RAG pipelines often insert retrieved document chunks directly into the prompt with no distinction from system instructions. The LLM cannot inherently distinguish "this is data to reason about" from "this is an instruction to follow." Retrieved content should be explicitly demarcated and, where possible, processed through a model or layer that enforces instruction hierarchy.
+
+6. **Trusting internal tool results because the connector is internal.** Internal APIs often return fields written by customers, employees, vendors, or public users. The tool transport may be trusted while the payload is not. Trace the payload writer before assigning trust.
+
+7. **Approving a summary instead of the canonical action.** Human approval is weak if the reviewer sees a model-written summary while the actual tool call contains hidden defaults, nested metadata, extra recipients, broad filters, attachments, or redirected URLs. Review the fully resolved action that will execute.
+
+8. **Treating canaries as a prevention strategy.** Canary tokens can detect some prompt leaks after they happen, but they do not prevent tool misuse, renderer-based exfiltration, or indirect injection through retrieved content.
 
 ---
 
