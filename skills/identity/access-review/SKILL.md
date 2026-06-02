@@ -12,7 +12,7 @@ phase: [operate]
 frameworks: [CIS-Controls-v8, NIST-SP-800-53-AC]
 difficulty: intermediate
 time_estimate: "45-90min"
-version: "1.0.0"
+version: "1.0.1"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -101,8 +101,9 @@ Identify:
 
 - **In-scope systems** — production environments, SaaS applications, infrastructure platforms, databases, internal tools
 - **In-scope identity types** — human users, service accounts, shared accounts, external/guest accounts
-- **Entitlement sources** — IdP group memberships, cloud IAM roles, application-level permissions, database grants
+- **Entitlement sources** — HRIS employment status, IdP group memberships, SCIM provisioning state, cloud IAM roles, application-level permissions, database grants, app-local users, and app-local roles
 - **Review cadence compliance** — verify the current review meets the organization-defined frequency
+- **Effective-access paths** — direct grants, nested groups, dynamic groups, inherited resource roles, JIT/eligible assignments, workload identity bindings, and app-local role mappings that combine into actual access
 
 **What to look for:**
 
@@ -113,6 +114,9 @@ AR-SCOPE-03: Service accounts excluded from review population
 AR-SCOPE-04: SaaS applications not included in centralized review (shadow IT gap)
 AR-SCOPE-05: No single authoritative source for entitlements (CIS 6.7 — centralize access control)
 AR-SCOPE-06: Guest/external accounts not included in review scope
+AR-SCOPE-07: App-local accounts or roles excluded from centralized IdP/SCIM review
+AR-SCOPE-08: Effective access not expanded beyond direct grants (nested groups, inheritance, dynamic groups)
+AR-SCOPE-09: Workload identities reviewed without token, key, or federation activity evidence
 ```
 
 **Recommended cadences:**
@@ -124,6 +128,26 @@ AR-SCOPE-06: Guest/external accounts not included in review scope
 | Service accounts | Quarterly (90 days) | CIS 5.5 |
 | External / guest accounts | Quarterly (90 days) | AC-2 |
 | Break-glass / emergency accounts | Monthly (30 days) | AC-6(1) |
+
+**Effective-access evidence matrix:**
+
+| Field | Why It Matters |
+|---|---|
+| Principal / identity type | Human, contractor, guest, service account, workload identity, shared account, break-glass account |
+| Source of truth | HRIS, IdP, PAM, cloud IAM, app-local directory, database, or ticketing system |
+| HR / sponsor status | Active, terminated, transferred, contractor expired, guest sponsor valid, unknown |
+| IdP status | Active, suspended, disabled, deleted, or outside federation |
+| App-local status | Detects users and roles that remain active after IdP disablement or SCIM failure |
+| Direct grant | Explicit user-to-role or user-to-permission assignment |
+| Inherited path | Folder/project/org/resource inheritance that creates access without a direct grant |
+| Nested or dynamic group path | Group-to-group chains and rule-based groups that grant effective permissions |
+| Standing vs eligible/JIT | Distinguishes always-active privileged access from controlled eligible activation |
+| Last interactive use | Human sign-in recency where applicable |
+| Last non-interactive/token use | API key, workload federation, service principal, CI job, or access-token evidence |
+| Certifier and independence | Confirms the reviewer is accountable and not certifying their own privileged access |
+| Exception owner and expiry | Ensures exceptions are justified, time-bounded, and reviewed |
+| SCIM / provisioning state | Detects failed deprovisioning or local-account drift |
+| Enforcement result | Confirms revoke decisions actually changed effective access |
 
 ---
 
@@ -147,6 +171,8 @@ AR-CERT-05: No escalation path for entitlements where the certifier is uncertain
 AR-CERT-06: Certification decisions not enforced — revoked entitlements not actually removed
 AR-CERT-07: No SLA for certification completion (recommended: 14 business days)
 AR-CERT-08: Delegated reviews without accountability (certifier delegates but is not tracked)
+AR-CERT-09: Certifier reviews their own privileged access or their own group's ownership
+AR-CERT-10: Certifier sees a role name but not the effective permissions or inherited access path
 ```
 
 **Rubber-stamp detection criteria:**
@@ -177,6 +203,9 @@ AR-ORPH-05: Accounts inactive > 45 days without documented exception (CIS 5.3)
 AR-ORPH-06: Accounts not correlated with authoritative HR source (HRIS feed gap)
 AR-ORPH-07: Deprovisioning SLA exceeded (same-day for terminations, 24 hours for role changes)
 AR-ORPH-08: Test/temporary accounts promoted to production without lifecycle management
+AR-ORPH-09: HRIS/IdP/SaaS state drift (terminated in HRIS, disabled in IdP, but active app-local account remains)
+AR-ORPH-10: SCIM or provisioning errors prevent revocation but review records show access as removed
+AR-ORPH-11: Workload or service account marked dormant using interactive sign-in only, without token/key/federation activity evidence
 ```
 
 **Platform-specific checks:**
@@ -188,6 +217,24 @@ AR-ORPH-08: Test/temporary accounts promoted to production without lifecycle man
 | **GCP** | Admin Activity logs, Policy Analyzer | Last authentication event, unused IAM bindings |
 | **Okta / IdP** | System Log, user lifecycle status | Suspended vs. deprovisioned, last authentication timestamp |
 | **SaaS apps** | SCIM sync status, app-native audit logs | Users not synced from IdP, local accounts outside federation |
+
+**JML and SCIM drift checks:**
+
+For joiner/mover/leaver reviews, trace each identity across the HRIS, IdP, provisioning connector, and application-local state. A clean IdP record does not prove access was removed if the downstream application still has a local active user or privileged app role.
+
+| Drift Pattern | Risk | Evidence to Collect |
+|---|---|---|
+| HRIS terminated -> IdP active | Leaver was not suspended at the control point | HR termination date, IdP status, deprovisioning ticket |
+| IdP disabled -> SaaS local user active | SCIM failure or app-local bypass leaves access active | SCIM logs, app user export, app audit logs |
+| Group removed -> inherited role remains | Revocation did not remove effective access | Effective access graph before/after revocation |
+| Role revoked -> dynamic group regrants | Rule-based assignment restores access after review | Dynamic group rule, membership recomputation timestamp |
+| Contractor expired -> sponsor still active | Vendor access persists without business owner validation | Contract end date, sponsor approval, exception expiry |
+
+**Exception-aware calibration:**
+
+- Do not flag break-glass accounts as dormant solely because they are rarely used. Validate emergency-account controls: named owner, vaulted credentials, phishing-resistant MFA or equivalent, dual approval, alerting on use, monthly review, test-use evidence where required, and exception expiry.
+- Do not flag service accounts as dormant using interactive sign-in alone. Validate workload-specific signals such as access key use, token exchange logs, service principal sign-ins, CI job identity claims, workload federation events, and rotation history.
+- Treat missing owner, missing expiry, missing monitoring, or unbounded privilege as findings even when the account type is legitimate.
 
 ---
 
@@ -209,6 +256,8 @@ AR-ROLE-05: No role lifecycle process (creation, modification, retirement)
 AR-ROLE-06: Role naming conventions inconsistent or undocumented
 AR-ROLE-07: Nested role hierarchies exceeding 3 levels (complexity creates audit blind spots)
 AR-ROLE-08: Custom roles duplicating built-in/managed role permissions
+AR-ROLE-09: Nested or dynamic group paths grant effective admin access not visible in direct assignments
+AR-ROLE-10: Resource inheritance grants broad access through folder, project, organization, workspace, or database hierarchy
 ```
 
 **Role health metrics:**
@@ -219,6 +268,26 @@ AR-ROLE-08: Custom roles duplicating built-in/managed role permissions
 | Single-user roles | < 5% of total roles | 5-15% | > 15% |
 | Roles with no assignments | 0 | 1-5% | > 5% |
 | Average permissions per role | Varies by platform | > 2x platform median | > 5x platform median |
+
+**Effective access path expansion:**
+
+Direct grants are insufficient for access review. For every privileged or sensitive entitlement, reconstruct the path that creates the effective permission:
+
+```
+principal -> direct group -> nested group -> dynamic group rule -> resource role -> inherited scope -> effective permission
+```
+
+Reviewers should capture:
+
+- direct grants and group memberships
+- nested group chains and group owners
+- dynamic group rules and recomputation timestamps
+- inherited roles from folders, projects, organizations, workspaces, databases, or repositories
+- app-local role mappings that convert IdP groups into application permissions
+- standing assignments versus eligible/JIT assignments
+- denied-path tests or evidence that removed access no longer appears through another path
+
+If the review cannot reconstruct the effective-access path, classify the entitlement as **Not Evaluable** rather than approving it by role name alone.
 
 ---
 
@@ -252,6 +321,8 @@ AR-SOD-04: SoD analysis not automated (manual review only)
 AR-SOD-05: Emergency/break-glass access bypasses SoD without post-hoc review
 AR-SOD-06: Role combinations that create SoD conflicts not flagged during provisioning
 AR-SOD-07: SoD conflicts in service accounts (single account spans multiple functions)
+AR-SOD-08: Eligible/JIT privileged role activations are not reviewed for approval, duration, and activation history
+AR-SOD-09: Certifier or access owner can approve their own conflicting access
 ```
 
 **Severity classification for SoD violations:**
@@ -263,6 +334,16 @@ AR-SOD-07: SoD conflicts in service accounts (single account spans multiple func
 | Development + production deploy | **High** | Unauthorized change risk |
 | Non-production environments only | **Medium** | Lower blast radius but bad practice |
 | Compensating control documented and tested | Downgrade one level | Mitigated but not eliminated |
+
+**Standing vs. eligible/JIT privileged access:**
+
+Eligible or just-in-time access is lower risk than standing access only when activation controls are enforced and evidenced. Validate:
+
+- activation requires independent approval, MFA, reason capture, and time-bounded duration
+- activation logs are retained and reviewed for abnormal frequency or duration
+- emergency activation has post-hoc review
+- eligible assignments are still reviewed for business need and scope
+- activation approvers cannot approve their own access
 
 ---
 
@@ -284,6 +365,9 @@ AR-ENF-05: No reconciliation between review decisions and actual access state
 AR-ENF-06: Exception process not documented or exceptions not time-bounded
 AR-ENF-07: Compensating controls for exceptions not validated
 AR-ENF-08: No metrics or reporting on review completion rates and outcomes
+AR-ENF-09: Revoked access is regranted by nested group, dynamic group, app-local role, or inherited resource path
+AR-ENF-10: SCIM/provisioning failure leaves app access active after review shows revoke complete
+AR-ENF-11: Exceptions lack owner, business justification, compensating control, or expiry date
 ```
 
 **Evidence requirements for audit:**
@@ -295,6 +379,9 @@ AR-ENF-08: No metrics or reporting on review completion rates and outcomes
 | Revocation execution confirmation (ticket, timestamp) | Duration of audit period + 1 year | AC-2, CIS 6.2 |
 | Exception approvals with justification and expiry | Duration of exception + 1 year | AC-6 |
 | Review completion metrics (on-time %, revocation %) | Duration of audit period + 1 year | AC-2 |
+| Effective-access reconciliation snapshot (before/after revoke) | Duration of audit period + 1 year | AC-6 |
+| SCIM/provisioning logs for revoke decisions | Duration of audit period + 1 year | CIS 6.2 |
+| Exception register with owner, justification, control, expiry | Duration of exception + 1 year | AC-6 |
 
 ---
 
@@ -321,6 +408,9 @@ AR-ENF-08: No metrics or reporting on review completion rates and outcomes
 | **Framework Ref** | NIST SP 800-53 control ID and/or CIS Controls v8 sub-control |
 | **Affected Scope** | Accounts, roles, systems, or platforms impacted |
 | **Evidence** | Specific data supporting the finding (counts, examples, screenshots) |
+| **Effective Access Path** | Direct grant, nested group, dynamic group, inherited role, app-local mapping, or JIT activation path |
+| **Evidence Confidence** | High / Medium / Low / Not Evaluable based on source completeness |
+| **Exception Context** | Owner, justification, compensating control, and expiry when applicable |
 | **Remediation** | Prioritized fix with implementation guidance |
 | **Effort** | Low (< 1 day) / Medium (1-5 days) / High (> 5 days) |
 
@@ -334,6 +424,7 @@ AR-ENF-08: No metrics or reporting on review completion rates and outcomes
 - Identity provider(s): [list]
 - Review period: [start date] to [end date]
 - Population: [X human users, Y service accounts, Z total entitlements]
+- Effective access sources: [direct grants, nested groups, app-local roles, SCIM logs, cloud policy analyzers]
 
 ### Executive Summary
 [2-3 sentences: overall entitlement hygiene, critical gaps, top priority actions]
@@ -351,6 +442,8 @@ AR-ENF-08: No metrics or reporting on review completion rates and outcomes
 - Role Explosion (Step 4): [count]
 - Segregation of Duties (Step 5): [count]
 - Enforcement & Evidence (Step 6): [count]
+- JML / SCIM Drift: [count]
+- Not Evaluable due to missing effective-access evidence: [count]
 
 ### Detailed Findings
 [Findings table]
@@ -401,6 +494,9 @@ See the mapping table in the Framework Quick Reference section above for sub-con
 5. **Role explosion masking risk** — When roles proliferate, reviewers cannot meaningfully assess what permissions a role grants. Pair reviews with role rationalization.
 6. **SoD analysis done manually** — Manual SoD checks do not scale and miss cross-system conflicts. Implement conflict rules in IGA tooling.
 7. **Evidence not retained** — Reviews happen but evidence is not preserved for the audit window. Configure IGA tools to retain decisions and timestamps.
+8. **Approving direct grants while missing inherited access** — A user can have no direct admin role but still inherit admin access through nested groups, dynamic groups, app-local mappings, folders, projects, or organization-level roles.
+9. **Treating IdP state as complete proof of access removal** — Disabling an IdP user does not prove every SaaS app, database, or local account removed access. Reconcile downstream application state and SCIM errors.
+10. **Using interactive sign-in as the only service-account signal** — Workload identities may never sign in interactively. Review token, key, federation, and CI/CD activity before calling them dormant.
 
 ---
 
@@ -443,4 +539,5 @@ This skill processes identity and entitlement data that may contain adversarial 
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.0.1 | 2026-06-02 | Added effective-access evidence matrix, JML/SCIM drift checks, inherited access path expansion, JIT calibration, and exception-aware false-positive guidance |
 | 1.0.0 | 2025-03-06 | Initial release |
