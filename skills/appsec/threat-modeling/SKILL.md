@@ -5,15 +5,16 @@ description: >
   or codebase. Auto-invoked when the user discusses architecture, shares a system
   diagram or design document, or asks "what could go wrong?" Produces threat actor
   profiles, component-threat matrix, a threat register with STRIDE classification,
-  data-flow diagram template, trust boundary identification, and prioritized
-  mitigations mapped to MITRE ATT&CK techniques.
+  privacy threat evidence when personal data is in scope, data-flow diagram
+  template, trust boundary identification, and prioritized mitigations mapped to
+  MITRE ATT&CK techniques.
 tags: [appsec, design, architecture, threat-model]
 role: [security-engineer, architect, appsec-engineer, vciso]
 phase: [design, review]
-frameworks: [STRIDE, PASTA, MITRE-ATT&CK]
+frameworks: [STRIDE, PASTA, LINDDUN, MITRE-ATT&CK]
 difficulty: intermediate
 time_estimate: "30-60min"
-version: "1.0.0"
+version: "1.1.0"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -48,6 +49,8 @@ Before beginning the threat model, gather the following. Mark each item as obtai
 - [ ] **Trust boundaries** — Where authentication and authorization are enforced; boundaries between internal networks, DMZs, public internet, third-party services, and user devices.
 - [ ] **Authentication and authorization mechanisms** — OAuth 2.0 flows, API keys, JWTs, SAML, RBAC/ABAC policies, service-to-service identity (SPIFFE/mTLS).
 - [ ] **Data classification** — What data is stored or processed (PII, PHI, financial data, credentials, secrets) and its sensitivity level.
+- [ ] **Privacy scope** — Whether personal, regulated, behavioral, health, financial, telemetry, analytics, AI-derived, embedding, or profiling data is processed.
+- [ ] **Privacy governance** — Data subjects, jurisdictions, controller/processor roles, legal basis, consent/notice, retention, deletion path, DSR path, and subprocessors.
 - [ ] **Threat actor profiles** — External attackers, malicious insiders, compromised supply chain, nation-state actors, automated bots.
 - [ ] **Compliance and regulatory requirements** — Applicable standards (SOC 2, PCI DSS, HIPAA, GDPR, FedRAMP).
 - [ ] **Existing security controls** — WAF, IDS/IPS, SIEM, secret management (Vault, AWS Secrets Manager), encryption at rest and in transit.
@@ -179,6 +182,12 @@ Every data flow in the DFD must be annotated with the following properties:
 | Encryption in transit | TLS 1.3, WireGuard, none |
 | Key management | AWS KMS, HashiCorp Vault, application-managed, N/A |
 | Failure mode | Fail-closed (deny on error) or fail-open (allow on error) |
+| Purpose | Authentication, billing, analytics, support, fraud detection |
+| Data subject | Customer, employee, patient, child, merchant, admin |
+| Recipient role | Controller, processor, subprocessor, internal team, vendor |
+| Jurisdiction | US, EU, UK, region-specific residency |
+| Retention and deletion path | Retention period, deletion job, downstream propagation |
+| Data-subject controls | Notice, consent, opt-out, DSR/export/delete path |
 
 Mark any flow with `Authentication: none` or `Failure mode: fail-open` as requiring immediate threat analysis.
 
@@ -257,6 +266,44 @@ Threat: An attacker gains access to resources or actions beyond their authorized
 | Are privilege boundaries enforced in containerized environments? | Container escape, privileged container |
 | Can an attacker exploit deserialization or injection for code execution? | Remote code execution via insecure deserialization |
 | Are default credentials and unnecessary services removed? | Default admin/admin on management interfaces |
+
+### Step 4A: Apply LINDDUN Privacy Threats When Personal Data Is In Scope
+
+If the system processes personal, regulated, behavioral, health, financial, telemetry, analytics, AI-derived, embedding, or profiling data, add a privacy threat modeling branch alongside STRIDE. STRIDE Information Disclosure catches confidentiality failures, but it does not fully model linkability, identifiability, detectability, unawareness, intervenability, or privacy non-compliance.
+
+Use LINDDUN-style categories to evaluate each privacy-relevant data flow, data store, model, analytics export, vendor integration, and internal audience.
+
+| LINDDUN Category | Questions to Ask | Example Threat |
+|------------------|------------------|----------------|
+| Linkability | Can events or records be linked across sessions, products, teams, vendors, or contexts? | Stable pseudonymous ID joins health events with billing and analytics data |
+| Identifiability | Can a person be re-identified from rare attributes, small cohorts, embeddings, or joined datasets? | Rare condition event plus location and timestamp identifies a user |
+| Non-repudiation | Can users be unable to deny actions or associations that should remain unlinkable? | Detailed behavioral logs create unnecessary proof of sensitive activity |
+| Detectability | Can an observer infer that a user exists, uses a feature, has a condition, or is in a cohort? | Analytics event reveals participation in a sensitive program |
+| Information Disclosure | Is personal data exposed to unauthorized roles, vendors, logs, models, prompts, or support tools? | Chat text copied into vector store and support suggestions without minimization |
+| Unawareness | Are notice, consent, purpose, retention, data sharing, or AI processing unclear to data subjects? | Users are not told chat messages become product analytics training signals |
+| Non-compliance | Are legal basis, processor/subprocessor mapping, retention, deletion, opt-out, or DSR duties missing? | Vendor export lacks deletion propagation and DSR handling evidence |
+
+#### Privacy Boundary Checklist
+
+- Purpose boundary: the data is used only for the purpose stated to the data subject.
+- Role boundary: internal teams and vendors have only the data required for their role.
+- Jurisdiction boundary: data residency, cross-border transfer, and regional regulation are recorded.
+- Processor boundary: processors and subprocessors are identified with contracts and deletion SLAs.
+- Retention boundary: retention periods and deletion propagation are testable, including caches, logs, backups, embeddings, and vector stores.
+- Data-subject control boundary: notice, consent, opt-out, access/export/delete, and appeal paths are present.
+
+#### Privacy Mitigation Evidence
+
+Do not accept policy-only mitigations as fully verified. For each privacy mitigation, record:
+
+| Field | Evidence |
+|-------|----------|
+| Control / policy ID | DPIA, retention policy, DPA, consent record, security control, deletion ticket |
+| Source evidence | Code path, table/field inventory, config, vendor contract, runbook, test output |
+| Test performed | Deletion propagation test, opt-out test, export test, vector/RAG deletion test |
+| Owner | Product, legal, privacy, platform, vendor owner |
+| Residual risk | Accepted risk and approving authority |
+| Not Evaluable reason | Policy-only, no vendor evidence, no deletion test, no data inventory, no DSR path |
 
 ### Step 5: Build Component-Threat Matrix
 
@@ -400,6 +447,14 @@ Produce the threat register as a structured table. Each row represents one ident
 | TM-005 | Denial of Service | Unbounded file upload allows resource exhaustion via large payload submission | File Upload `/api/v1/upload` | T1499.003 — Application Exhaustion Flood | High | Medium | High | Enforce max file size (10MB), implement request timeout, add rate limiting per user | Storage Team | Open |
 | TM-006 | Elevation of Privilege | IDOR vulnerability allows regular users to access other users' records by modifying resource ID | User Profile `/api/v1/users/{id}` | T1068 — Exploitation for Privilege Escalation | High | High | Critical | Implement object-level authorization checks, validate resource ownership at service layer | Backend Team | Open |
 
+### Privacy Threat Matrix
+
+Include this matrix when privacy scope is present. Do not collapse these rows into STRIDE Information Disclosure unless the privacy-specific fields are not applicable and that decision is documented.
+
+| Flow / Store / Model | Data Subject | Purpose | Recipient / Processor | Jurisdiction | LINDDUN Category | Threat | Evidence | Mitigation | Not Evaluable Reason |
+|----------------------|--------------|---------|-----------------------|--------------|------------------|--------|----------|------------|----------------------|
+| <analytics export> | <customer> | <product analytics> | <vendor> | <EU/US> | Linkability / Identifiability | <stable ID allows cross-context linking> | <data inventory / vendor evidence> | <rotate IDs, aggregate, minimize> | <missing deletion test> |
+
 ## 6. Framework Reference
 
 ### STRIDE (Microsoft, 2003)
@@ -430,6 +485,12 @@ PASTA is a 7-stage, risk-centric threat modeling methodology that complements ST
 7. **Risk and Impact Analysis** — Quantify business impact (revenue loss, regulatory fines, reputational damage) and prioritize residual risk.
 
 When running this skill, use STRIDE for systematic per-element threat identification (Step 4) and layer in PASTA stages 5-7 when the threat model requires attack chain simulation or business impact quantification beyond what the STRIDE risk matrix provides.
+
+### LINDDUN Privacy Threat Modeling
+
+LINDDUN is a privacy threat modeling framework that complements STRIDE for systems processing personal or regulated data. Use it when data classification, privacy regulation, telemetry, analytics, profiling, AI/RAG processing, embeddings, or user behavior data are in scope. The categories are Linkability, Identifiability, Non-repudiation, Detectability, Information Disclosure, Unawareness, and Non-compliance.
+
+Privacy boundaries differ from security trust boundaries. They can be based on purpose, role, organization, processor/subprocessor, data-subject relationship, jurisdiction, retention period, and data-subject control. A system can be secure against attackers while still creating privacy risk through cross-context linking, re-identification, secondary use, excessive retention, or deletion failure.
 
 ### MITRE ATT&CK Framework
 
@@ -467,6 +528,10 @@ Threat models become stale as architectures evolve. New services, changed data f
 
 A threat register full of identified threats but no prioritized, assignable mitigations provides no security value. Every identified threat must have a corresponding mitigation with a clear owner, a severity-based SLA, and a tracking mechanism (e.g., linked Jira ticket or GitHub issue). If a threat is accepted rather than mitigated, document the risk acceptance with an approving authority and review date.
 
+### Pitfall 6: Collapsing Privacy Into STRIDE Information Disclosure
+
+Encryption and confidentiality controls do not eliminate privacy threats. Pseudonymized analytics, embeddings, telemetry, rare-event cohorts, internal support access, and vendor exports can create linkability, identifiability, unawareness, intervenability, and non-compliance risks even when no plaintext secret is exposed. Use the privacy branch when personal or regulated data is in scope.
+
 ## 8. Prompt Injection Safety Notice
 
 This skill processes user-supplied content that may include system descriptions, architecture diagrams, configuration files, and design documents. The agent must adhere to the following safety constraints:
@@ -489,3 +554,5 @@ This skill processes user-supplied content that may include system descriptions,
 8. **NIST SP 800-154** — Guide to Data-Centric System Threat Modeling — https://csrc.nist.gov/publications/detail/sp/800-154/draft
 9. **STRIDE Original Paper** — Kohnfelder, L. & Garg, P. (1999). "The Threats to Our Products." Microsoft Internal Document.
 10. **OWASP Risk Rating Methodology** — https://owasp.org/www-community/OWASP_Risk_Rating_Methodology
+11. **LINDDUN Privacy Threat Categories** — https://linddun.org/linddun-go-categories/
+12. **LINDDUN Threat Trees** — https://linddun.org/threat-trees/
