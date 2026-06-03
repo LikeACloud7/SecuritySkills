@@ -188,7 +188,12 @@ Check for SSO/Identity Center configuration:
 aws_ssoadmin_managed_policy_attachment
 aws_identitystore
 aws_organizations_organization
+aws_cloudformation_stack_set
+aws_ram_resource_share
+aws_controltower_control
 ```
+
+For organization-wide identity or guardrail conclusions, record whether CloudFormation StackSets deploy controls across accounts, whether AWS RAM shares security-relevant resources with member accounts, and whether AWS Control Tower guardrails or account-factory configuration enforce CIS-equivalent controls at the landing-zone level.
 
 ### CIS 1.22 -- Ensure access to AWSCloudShellFullAccess is restricted
 

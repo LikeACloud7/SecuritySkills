@@ -55,7 +55,7 @@ The CIS Amazon Web Services Foundations Benchmark v3.0.0 is a consensus-driven s
 - S3 bucket policies and ACL configurations
 - VPC, security group, and NACL definitions
 - CloudTrail and CloudWatch configuration files
-- AWS Organizations metadata, delegated administrator configuration, account/OU inventory, Region scope, Security Hub central configuration, AWS Config aggregators, and SCPs when making organization-wide conclusions
+- AWS Organizations metadata, delegated administrator configuration, account/OU inventory, Region scope, Security Hub central configuration, AWS Config aggregators, SCPs, CloudFormation StackSets, AWS RAM shares, and Control Tower guardrails when making organization-wide conclusions
 
 ---
 
@@ -90,6 +90,9 @@ Also locate supporting configuration:
 **/scp/**
 **/service-control-policies/**
 **/access-analyzer/**
+**/stacksets/**
+**/ram/**
+**/controltower/**
 ```
 
 Record all discovered files. If no AWS configurations are found, report that finding and halt.
@@ -102,16 +105,20 @@ Before scoring CIS controls, record the scope of each evidence source. Distingui
 
 Capture:
 
-- AWS Organization ID, management account, delegated administrator accounts, and evidence export date
-- Accounts and OUs reviewed, excluded accounts/OUs, suspended accounts, newly created accounts, and the coverage denominator
-- Regions reviewed, opt-in Regions, Security Hub home Region, linked Regions, and Regions excluded from central configuration
-- Whether each evidence source is account-local, delegated-admin scoped, organization-wide, sampled, or IaC-only
-- Whether CloudTrail trails are account trails or organization trails, including owning account and covered accounts/OUs
-- Whether IAM Access Analyzer is `ACCOUNT` or `ORGANIZATION` scoped, and whether delegated administrator configuration is present
-- Security Hub CSPM central configuration status, policy associations, centrally managed targets, self-managed targets, and exceptions
-- AWS Config aggregator scope and SCP/permission-boundary/session-policy evidence that constrains effective access
+- [ ] AWS Organization ID, management account, delegated administrator accounts, and evidence export date
+- [ ] Accounts and OUs reviewed, excluded accounts/OUs, suspended accounts, newly created accounts, and the coverage denominator
+- [ ] Regions reviewed, opt-in Regions, Security Hub home Region, linked Regions, and Regions excluded from central configuration
+- [ ] Whether each evidence source is account-local, delegated-admin scoped, organization-wide, sampled, or IaC-only
+- [ ] Whether CloudTrail trails are account trails or organization trails, including owning account and covered accounts/OUs
+- [ ] Whether IAM Access Analyzer is `ACCOUNT` or `ORGANIZATION` scoped, and whether delegated administrator configuration is present
+- [ ] Security Hub CSPM central configuration status, policy associations, centrally managed targets, self-managed targets, and exceptions
+- [ ] AWS Config aggregator scope and SCP/permission-boundary/session-policy evidence that constrains effective access
+- [ ] CloudFormation StackSets and AWS RAM shares that deploy or share security controls across accounts
+- [ ] AWS Control Tower guardrails, account factory configuration, and landing-zone managed controls if Control Tower resources or account-factory files are detected
 
 Use `Not Evaluable from Single Account` when the evidence cannot prove organization-wide posture, and `Not Evaluable from IaC Only` when runtime, delegated-admin, Region, or account coverage evidence is required but unavailable.
+
+If more than half of the applicable CIS controls are Not Evaluable, flag a data-gap warning in the Executive Summary and do not rely on the compliance percentage without organization-wide evidence collection.
 
 ---
 
@@ -167,6 +174,7 @@ Produce the final report using the structure defined in the Output Format sectio
 - Not Evaluable (insufficient data): <N>
 - Not Evaluable from Single Account: <N>
 - Not Evaluable from IaC Only: <N>
+- Data-gap warning: <required when more than 50% of applicable controls are not evaluable>
 - Overall compliance: <percentage>
 
 ### Section Scores
@@ -185,12 +193,10 @@ Produce the final report using the structure defined in the Output Format sectio
 - **Status:** Pass / Fail / Not Evaluable / Not Evaluable from Single Account / Not Evaluable from IaC Only
 - **Severity:** Critical / High / Medium / Low
 - **CIS Profile:** Level 1 / Level 2
-- **Evidence scope:** Single account / Account+Region / OU / Organization-wide / Delegated admin / IaC only / Sampled
+- **Evidence scope:** single account / account+region / ou / organization-wide / delegated admin / iac only / sampled, with delegate or coverage detail inline when applicable
 - **Account/OU/Region:** <account id, OU, Region list, or coverage denominator>
-- **Delegated admin?:** <yes/no/service/account id>
-- **Organization-wide?:** <yes/no/unknown>
 - **Effective-access qualifiers:** <SCPs / permission boundaries / session policies / resource policies / none reviewed>
-- **Not Evaluable reason:** <single account only / IaC only / missing delegated admin / missing Region denominator / missing account inventory / sampled export>
+- **Not Evaluable reason:** <single account only / iac only / missing delegated admin / missing Region denominator / missing account inventory / sampled export>
 - **File:** <path to relevant config>
 - **Line(s):** <line numbers if applicable>
 - **Description:** <what was found>
@@ -205,7 +211,9 @@ Produce the final report using the structure defined in the Output Format sectio
 | IAM Access Analyzer | ACCOUNT / ORGANIZATION / Not reviewed | <account> | <accounts/OUs/denominator> | <Regions> | <account or n/a> | Yes / No / Unknown | <missing Regions/account analyzers> |
 | Security Hub CSPM | Central / Self-managed / Not reviewed | <home Region/account> | <policy target associations> | <home + linked Regions> | <account or n/a> | Yes / No / Unknown | <self-managed targets/exceptions> |
 | AWS Config Aggregator | Organization / Account / Not reviewed | <account> | <accounts/OUs/denominator> | <Regions> | <account or n/a> | Yes / No / Unknown | <excluded accounts/Regions> |
-| SCP / effective access | Reviewed / Missing / Not applicable | <management account> | <accounts/OUs> | <n/a> | <n/a> | Yes / No / Unknown | <policy boundary gaps> |
+| SCP / effective access | Reviewed / Missing / Not applicable | <management account> | <accounts/OUs> | <n/a> | <management account> | Yes / No / Unknown | <policy boundary gaps> |
+| CloudFormation StackSets / AWS RAM | Reviewed / Missing / Not applicable | <management or delegated account> | <stack instances / shared principals> | <Regions> | <account or n/a> | Yes / No / Unknown | <deployment/share gaps> |
+| AWS Control Tower | Reviewed / Missing / Not applicable | <management account> | <landing zone accounts/OUs> | <governed Regions> | <account or n/a> | Yes / No / Unknown | <guardrail/account-factory gaps> |
 
 ### Prioritized Remediation Plan
 
@@ -252,6 +260,7 @@ Produce the final report using the structure defined in the Output Format sectio
 7. **Overclaiming organization coverage from one account.** A member-account CloudTrail, Security Hub export, Access Analyzer, or Config result is useful local evidence, but it does not prove organization-wide coverage unless accounts, OUs, delegated admin, Regions, and exclusions are recorded.
 8. **Over-reporting local gaps when central controls exist.** Organization trails, Security Hub central configuration, AWS Config aggregators, SCPs, and delegated-admin services may cover accounts where local IaC appears incomplete. Record central evidence before escalating the finding.
 9. **Treating SCPs as grants.** SCPs set maximum permissions; they do not grant access and do not make a broad local IAM allow safe without underlying IAM/resource-policy evidence. Use SCPs to calibrate blast radius only when the boundary is verified.
+10. **Missing landing-zone controls.** CloudFormation StackSets, AWS RAM shares, and AWS Control Tower guardrails can deploy or enforce controls outside the local account's IaC. Record these before concluding an organization-wide control is absent.
 
 ---
 
