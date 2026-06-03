@@ -154,16 +154,23 @@ public IActionResult DownloadFile(string filename)
 }
 ```
 
-Remediation: Resolve the full path and verify it stays within the allowed base directory.
+Remediation: Resolve the full path against a trusted absolute base directory and verify it stays within the allowed base directory with explicit path-comparison semantics.
 
 ```csharp
-// SECURE: canonicalize and validate the resolved path
+// SECURE: deterministic base path, explicit boundary, platform-aware comparison
 public IActionResult DownloadFile(string filename)
 {
-    var basePath = Path.GetFullPath(_uploadDir);
-    var fullPath = Path.GetFullPath(Path.Combine(_uploadDir, filename));
+    if (Path.IsPathRooted(filename) || Path.IsPathFullyQualified(filename))
+        return BadRequest("Invalid file path.");
 
-    if (!fullPath.StartsWith(basePath + Path.DirectorySeparatorChar))
+    var basePath = EnsureTrailingSeparator(
+        Path.GetFullPath(_uploadDir, AppContext.BaseDirectory));
+    var fullPath = Path.GetFullPath(filename, basePath);
+    var comparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    if (!fullPath.StartsWith(basePath, comparison))
         return BadRequest("Invalid file path.");
 
     if (!System.IO.File.Exists(fullPath))
@@ -171,7 +178,27 @@ public IActionResult DownloadFile(string filename)
 
     return PhysicalFile(fullPath, "application/octet-stream");
 }
+
+private static string EnsureTrailingSeparator(string path)
+{
+    return path.EndsWith(Path.DirectorySeparatorChar)
+        ? path
+        : path + Path.DirectorySeparatorChar;
+}
 ```
+
+Path traversal evidence should include:
+
+| Evidence | Required review question |
+|---|---|
+| Trusted base path | Is the base directory absolute, application-controlled, and independent of the process current directory? |
+| Boundary check | Does the code handle sibling-prefix cases such as `uploads2` versus `uploads` with an explicit trailing separator or equivalent provider scoping? |
+| Comparison semantics | Does the `StringComparison` match the deployed filesystem, for example ordinal-ignore-case for normal Windows paths and ordinal for case-sensitive Linux paths? |
+| Rooted and special paths | Are rooted, drive-relative, UNC, extended-length, device-name, and encoded-separator inputs rejected or normalized before use? |
+| Link policy | Are symlinks, junctions, reparse points, bind mounts, and archive-created links disallowed, resolved, or otherwise accounted for? |
+| Open/serve behavior | Is the file opened or served immediately after validation, or through a provider scoped to the intended root, to reduce replace-after-check races? |
+
+Do not treat `Path.GetFullPath` plus a default `StartsWith` overload as complete containment proof. If the deployment OS/filesystem, link policy, archive extraction path, or final file-open behavior is unknown, mark the path traversal conclusion as Not Evaluable rather than Secure.
 
 ---
 
@@ -853,6 +880,8 @@ public async Task<IActionResult> Upload(IFormFile file)
 }
 ```
 
+Upload review should not rely on `IFormFile.FileName` as storage evidence. Require evidence that client filenames are used only for encoded display/logging, server-side random names are used for storage, file size limits are enforced, extension allowlists are paired with content-type or signature validation where appropriate, risky workflows include malware scanning, double-extension and archive extraction behavior is covered, and uploaded content is not directly executable or web-served from a public root.
+
 ---
 
 #### 3. Server-Side Request Forgery -- SSRF (CWE-918)
@@ -927,6 +956,9 @@ Use these regex patterns to locate potential vulnerabilities in C# source files.
 | XSS (Blazor) | `MarkupString\)` |
 | OS Command Injection | `Process\.Start\s*\(.*[\+\$]` |
 | Path Traversal | `Path\.Combine\s*\(.*Request` |
+| Path Traversal (default prefix check) | `StartsWith\s*\([^,)]*(Path\.DirectorySeparatorChar|["'][/\\])\s*\)` |
+| Path Traversal (current-directory base) | `Path\.GetFullPath\s*\(\s*["'][^"':/\\]+["']\s*\)` |
+| Path Traversal (physical file sink) | `PhysicalFile\s*\(\s*(fullPath|path|.*Request)` |
 | XXE | `XmlResolver\s*=\s*new\s+XmlUrlResolver` |
 | XXE (DTD) | `DtdProcessing\s*=\s*DtdProcessing\.Parse` |
 | LDAP Injection | `DirectorySearcher.*Filter\s*=.*[\+\$]` |
