@@ -226,10 +226,14 @@ For Kubernetes, service mesh, and cloud-native pod networking, record runtime ev
 | Effective ingress | Source identities, namespaces, labels, CIDRs, ports, and protocols allowed after additive policy union |
 | Effective egress | Destinations, entities, services, CIDRs, ports, and protocols allowed after additive policy union |
 | Bypass paths | `hostNetwork`, node-local traffic, sidecar injection gaps, secondary interfaces/Multus, privileged host access, and management-plane exceptions |
-| Runtime proof | Connectivity test, packet capture, flow log, CNI policy trace, service mesh telemetry, or non-production validation run |
+| Runtime proof | Connectivity test, packet capture, flow log, CNI policy trace, service mesh telemetry, cloud CLI active-state export, or non-production validation run |
+| Flow-log analysis | VPC Flow Logs, Azure NSG flow logs, GCP VPC Flow Logs, firewall logs, or mesh telemetry compared against intended allowed paths |
+| Continuous detection | GuardDuty, Microsoft Defender for Cloud, Security Command Center, IDS, SIEM, or SOAR evidence for runtime segmentation violations |
 | Confidence | Declared / Enforced / Tested / Not Evaluable from Source Only |
 
 If a namespaced default-deny policy is present but a broad allow policy also selects the same workload, evaluate the complete selected-policy union. A default-deny object is not sufficient evidence when another policy reopens namespace-wide ingress, broad egress, or `0.0.0.0/0` destinations.
+
+Runtime verification examples include `kubectl exec` from representative pods, non-production `nmap` or `hping3` tests between zones, cloud CLI exports of active firewall/security-group/NACL state, CNI policy traces, and flow-log queries. Do not run intrusive tests against production without authorization and a rollback plan.
 
 ---
 
@@ -250,9 +254,12 @@ If PCI scope is identified, verify CDE segmentation meets PCI DSS requirements:
 
 - CDE is isolated in dedicated subnets or VLANs with explicit boundary controls.
 - All traffic entering and leaving the CDE traverses a firewall or equivalent PEP.
+- Inbound traffic to the CDE is restricted to necessary traffic only (PCI DSS 1.3.1).
+- Outbound traffic from the CDE is restricted to necessary traffic only (PCI DSS 1.3.2).
+- Wireless networks are separated from the CDE with network security controls (PCI DSS 1.3.3).
 - Connected-to systems are identified and documented.
 - Out-of-scope systems cannot route directly to CDE systems.
-- Segmentation testing methodology exists and is executed at least annually (PCI DSS 11.4.5).
+- Segmentation testing methodology exists and is executed at least annually for merchants (PCI DSS 11.4.5) and at least every six months for service providers (PCI DSS 11.4.6), and after significant network changes.
 
 **Finding classification:** CDE not segmented from general corporate network is **Critical**. Missing segmentation testing is **High**.
 
@@ -266,6 +273,7 @@ For PCI scope reduction, require explicit segmentation-test evidence rather than
 | Test date | Latest test date, recurrence, and whether testing occurred after significant network changes |
 | Tester independence | Internal independent tester, QSA, external assessor, or compensating governance evidence |
 | Methodology | Source/destination matrix, ports/protocols tested, authenticated/unauthenticated paths, IPv4/IPv6, and cloud/private connectivity |
+| Expected vs actual result | Expected blocked or allowed result, observed result, evidence link, screenshot, log reference, or packet capture |
 | Failed paths | Any unauthorized route, open port, tunnel, peering, service mesh path, or management-plane exception that reached the CDE |
 | Remediation status | Ticket, owner, due date, retest result, and residual risk acceptance |
 | Conclusion | Isolated / Partially Isolated / Not Isolated / Not Evaluable from Available Evidence |
@@ -283,6 +291,8 @@ Document or verify the existence of a segmentation testing process:
 5. **Validate that segmentation controls survive failover** (HA firewall failover should not open transit paths).
 6. **Validate runtime policy enforcement** for Kubernetes/CNI/service mesh workloads by testing representative allowed and denied source/destination pairs.
 7. **Validate scope-reduction claims** by proving out-of-scope systems cannot reach CDE systems except through approved, documented paths.
+8. **Analyze flow logs** to compare observed east-west traffic against intended policy and flag unauthorized allowed flows.
+9. **Review runtime detection hooks** that alert on lateral movement or segmentation violations and trigger policy review or isolation workflows.
 
 ---
 
@@ -344,15 +354,15 @@ Document or verify the existence of a segmentation testing process:
 
 ### Runtime Segmentation Evidence
 
-| Workload / Zone | Policy Source | Enforcement Plane | Selected Policies Reviewed | Runtime Proof | Bypass Paths Checked | Confidence |
-|-----------------|---------------|-------------------|-----------------------------|---------------|----------------------|------------|
-| payments-api | CiliumNetworkPolicy | Cilium CNI | default-deny, allow-api-to-db | flow log + test run | hostNetwork, sidecar gap | Tested |
+| Workload / Zone | Policy Source | Enforcement Plane | Selected Policies Reviewed | Runtime Proof | Flow Log Evidence | Bypass Paths Checked | Confidence |
+|-----------------|---------------|-------------------|-----------------------------|---------------|-------------------|----------------------|------------|
+| payments-api | CiliumNetworkPolicy | Cilium CNI | default-deny, allow-api-to-db | test run | flow log query link | hostNetwork, sidecar gap | Tested |
 
 ### PCI CDE Segmentation Test Evidence
 
-| CDE Asset / Zone | Out-of-Scope Source | Test Date | Tester | Method | Result | Remediation / Retest |
-|------------------|---------------------|-----------|--------|--------|--------|----------------------|
-| CDE subnet | corporate user VLAN | YYYY-MM-DD | independent tester | full port scan + app probe | blocked | N/A |
+| CDE Asset / Zone | Out-of-Scope Source | Protocol / Port | Expected | Actual | Test Date | Tester | Method / Evidence | Remediation / Retest |
+|------------------|---------------------|-----------------|----------|--------|-----------|--------|-------------------|----------------------|
+| CDE subnet | corporate user VLAN | TCP/443 | blocked | blocked | YYYY-MM-DD | independent tester | scan output + firewall log | N/A |
 
 ### Prioritized Remediation Plan
 1. **[Critical]** <action item with control reference>
@@ -401,6 +411,10 @@ Document or verify the existence of a segmentation testing process:
 6. **Treating declared policy as enforced policy.** A repository can contain valid `NetworkPolicy` manifests while the cluster CNI does not enforce them, or while another additive policy allows broad traffic. Require enforcement-plane and selected-policy evidence before marking the control as passing.
 
 7. **Using PCI diagrams as segmentation-test proof.** Network diagrams and firewall rules help scope the test, but they do not prove out-of-scope systems are isolated from the CDE. Require latest test date, coverage, tester independence, failed paths, and retest status.
+
+8. **Ignoring flow-log drift.** A static rule review can pass while VPC, NSG, firewall, or mesh telemetry shows unauthorized east-west traffic. Compare runtime flow data against the intended policy.
+
+9. **Applying subnet-only logic to serverless or managed services.** Lambda, Cloud Functions, managed databases, and provider-managed network controls may not map cleanly to subnet CIDRs. Record resource policies, VPC integration, service endpoints, private links, and provider-managed controls.
 
 ---
 
