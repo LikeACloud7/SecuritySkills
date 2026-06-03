@@ -1,6 +1,6 @@
 # C# and .NET -- API Security Patterns
 
-Language-specific supplement for the `api-security` skill covering ASP.NET Core Web API (controllers and Minimal APIs), GraphQL in .NET (HotChocolate / GraphQL.NET), and gRPC in .NET. All patterns target ASP.NET Core on .NET 6, 7, and 8.
+Language-specific supplement for the `api-security` skill covering ASP.NET Core Web API (controllers and Minimal APIs), GraphQL in .NET (HotChocolate / GraphQL.NET), and gRPC in .NET. Patterns target supported ASP.NET Core versions, with version-specific notes where newer Minimal API behavior changes security review evidence.
 
 ---
 
@@ -944,6 +944,92 @@ app.MapGet("/users/{id}", async Task<Results<Ok<UserResponse>, NotFound>> (
 }).RequireAuthorization();
 ```
 
+### Minimal API Form and File Upload Antiforgery
+
+In ASP.NET Core Minimal APIs, form and file-upload endpoints are a separate CSRF review path from ordinary JSON APIs. Endpoints that bind `IFormFile`, `IFormFileCollection`, `IFormCollection`, or other form data can require antiforgery token validation when browser credentials such as cookies are accepted. Reviewers must not treat `.RequireAuthorization()` as sufficient CSRF evidence for state-changing form endpoints.
+
+#### Cookie-Authenticated Upload -- Vulnerable
+
+```csharp
+// VULNERABLE: cookie-authenticated browser endpoint disables antiforgery.
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddAntiforgery();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
+
+app.MapPost("/account/avatar", async (IFormFile file, ClaimsPrincipal user) =>
+{
+    await avatarStore.SaveAsync(user, file);
+    return Results.Ok();
+})
+.RequireAuthorization()
+.DisableAntiforgery();
+```
+
+#### Cookie-Authenticated Upload -- Secure
+
+```csharp
+builder.Services.AddAuthentication().AddCookie();
+builder.Services.AddAntiforgery();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
+
+app.MapPost("/account/avatar", async (IFormFile file, ClaimsPrincipal user) =>
+{
+    await avatarStore.SaveAsync(user, file);
+    return Results.Ok();
+})
+.RequireAuthorization();
+```
+
+#### Not Applicable with Evidence
+
+```csharp
+// Antiforgery may be Not Applicable when browsers do not automatically send credentials.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer();
+
+app.MapPost("/mobile/avatar", async (IFormFile file, ClaimsPrincipal user) =>
+{
+    await avatarStore.SaveAsync(user, file);
+    return Results.Ok();
+})
+.RequireAuthorization();
+```
+
+Only mark antiforgery as Not Applicable when the review confirms that the endpoint does not accept cookie credentials, requires explicit bearer/API-key headers, is not reachable as a browser credentialed form flow, and CORS or same-site cookie settings do not reintroduce browser CSRF behavior.
+
+#### Minimal API Antiforgery Evidence Matrix
+
+| Field | Evidence to Capture |
+|-------|---------------------|
+| Route and method | Endpoint path, HTTP verb, endpoint group |
+| Form/file binding | `IFormFile`, `IFormFileCollection`, `IFormCollection`, `[FromForm]`, multipart body |
+| State-changing action | Account change, upload, payment, admin action, profile update |
+| Auth scheme | Cookie, bearer token, API key, mTLS, mixed |
+| Browser credentials accepted? | Cookies, SameSite mode, CORS credential settings, auth fallback |
+| `AddAntiforgery` configured? | Service registration and options |
+| `UseAntiforgery` configured? | Middleware present after authentication/authorization setup and before endpoint execution |
+| Endpoint metadata | Antiforgery metadata expected, disabled, or explicitly Not Applicable |
+| `DisableAntiforgery()` present? | Scope, route group, justification, compensating control |
+| Token acquisition path | How legitimate browser clients get and submit the antiforgery token |
+| Data Protection | Key persistence and sharing for server farms or multiple instances |
+| Conclusion | Secure / Vulnerable / Not Applicable / Not Evaluable |
+
+#### Review Hotspots
+
+- `DisableAntiforgery()` added to make Swagger or Postman uploads work without a production-safe browser token flow.
+- `builder.Services.AddAntiforgery()` exists but `app.UseAntiforgery()` is missing.
+- `UseAntiforgery()` exists but route groups disable it broadly for account or admin uploads.
+- Mixed cookie and bearer authentication where cookies are accepted even though the endpoint is documented as API-only.
+- File upload review covers size/type/storage controls but omits CSRF evidence for browser credentialed requests.
+
 ---
 
 ## GraphQL Security in .NET (HotChocolate)
@@ -1225,6 +1311,20 @@ MapPost\(.*register.*\)(?![\s\S]*?RequireRateLimiting)
 MapPost\(.*password.*\)(?![\s\S]*?RequireRateLimiting)
 ```
 
+### Minimal API Antiforgery
+
+```
+# Antiforgery disabled on Minimal API routes or groups
+DisableAntiforgery\(\)
+# Form/file binding endpoints needing CSRF evidence
+IFormFile
+IFormFileCollection
+IFormCollection
+\[FromForm\]
+# Missing antiforgery middleware when form/file endpoints exist
+AddAntiforgery\(\)(?![\s\S]*?UseAntiforgery\(\))
+```
+
 ---
 
 ## References
@@ -1239,6 +1339,9 @@ MapPost\(.*password.*\)(?![\s\S]*?RequireRateLimiting)
 - [CWE-942: Permissive Cross-domain Policy with Untrusted Domains](https://cwe.mitre.org/data/definitions/942.html)
 - [CWE-295: Improper Certificate Validation](https://cwe.mitre.org/data/definitions/295.html)
 - [Microsoft ASP.NET Core Security Documentation](https://learn.microsoft.com/en-us/aspnet/core/security/)
+- [ASP.NET Core Minimal API parameter binding](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/parameter-binding)
+- [ASP.NET Core anti-request-forgery](https://learn.microsoft.com/en-us/aspnet/core/security/anti-request-forgery)
+- [ASP.NET Core 8 antiforgery checks for IFormFile](https://learn.microsoft.com/en-us/dotnet/core/compatibility/aspnet-core/8.0/antiforgery-checks)
 - [Microsoft Rate Limiting Middleware](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit)
 - [HotChocolate GraphQL Security](https://chillicream.com/docs/hotchocolate/security)
 - [ASP.NET Core gRPC Authentication](https://learn.microsoft.com/en-us/aspnet/core/grpc/authn-and-authz)
