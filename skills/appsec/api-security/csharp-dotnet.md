@@ -1,6 +1,6 @@
 # C# and .NET -- API Security Patterns
 
-Language-specific supplement for the `api-security` skill covering ASP.NET Core Web API (controllers and Minimal APIs), GraphQL in .NET (HotChocolate / GraphQL.NET), and gRPC in .NET. Patterns target supported ASP.NET Core versions, with version-specific notes where newer Minimal API behavior changes security review evidence.
+Language-specific supplement for the `api-security` skill covering ASP.NET Core Web API (controllers and Minimal APIs), GraphQL in .NET (HotChocolate / GraphQL.NET), and gRPC in .NET. Patterns target .NET 7+ and supported ASP.NET Core versions, with version-specific notes where newer Minimal API behavior changes security review evidence.
 
 ---
 
@@ -946,6 +946,8 @@ app.MapGet("/users/{id}", async Task<Results<Ok<UserResponse>, NotFound>> (
 
 ### Minimal API Form and File Upload Antiforgery
 
+**CWE:** CWE-352
+
 In ASP.NET Core Minimal APIs, form and file-upload endpoints are a separate CSRF review path from ordinary JSON APIs. Endpoints that bind `IFormFile`, `IFormFileCollection`, `IFormCollection`, or other form data can require antiforgery token validation when browser credentials such as cookies are accepted. Reviewers must not treat `.RequireAuthorization()` as sufficient CSRF evidence for state-changing form endpoints.
 
 #### Cookie-Authenticated Upload -- Vulnerable
@@ -992,6 +994,7 @@ app.MapPost("/account/avatar", async (IFormFile file, ClaimsPrincipal user) =>
 
 ```csharp
 // Antiforgery may be Not Applicable when browsers do not automatically send credentials.
+// Example: mobile app uploads the file with a JWT in the Authorization header.
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer();
 
@@ -1324,6 +1327,8 @@ IFormCollection
 # Missing antiforgery middleware when form/file endpoints exist
 AddAntiforgery\(\)(?![\s\S]*?UseAntiforgery\(\))
 ```
+
+The final negative-lookahead pattern is a coarse file-level hint. In large files or split startup configurations, verify middleware registration manually before reporting a finding.
 
 ---
 
