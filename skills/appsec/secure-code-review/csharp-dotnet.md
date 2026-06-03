@@ -263,16 +263,58 @@ public bool ValidateInput(string input)
 }
 ```
 
-Remediation: Set a timeout on the `Regex` instance and simplify the pattern.
+Remediation: Set a timeout on regex execution, simplify the pattern, and document whether non-backtracking mode is applicable.
 
 ```csharp
-// SECURE: timeout prevents catastrophic backtracking
+// SECURE: timeout and simple pattern prevent catastrophic backtracking
 public bool ValidateInput(string input)
 {
-    var regex = new Regex(@"^a+$", RegexOptions.None, TimeSpan.FromSeconds(1));
+    var regex = new Regex(
+        @"^a+$",
+        RegexOptions.NonBacktracking,
+        TimeSpan.FromMilliseconds(250));
     return regex.IsMatch(input);
 }
 ```
+
+Static regex calls and source-generated regexes need the same evidence. Do not mark a call site safe only because no local `new Regex(...)` constructor is present.
+
+```csharp
+// SECURE: static calls rely on a default timeout configured at startup
+AppDomain.CurrentDomain.SetData(
+    "REGEX_DEFAULT_MATCH_TIMEOUT",
+    TimeSpan.FromMilliseconds(250));
+
+public static bool IsKnownCode(string value)
+{
+    return Regex.IsMatch(value, @"^[A-Z]{3}-\d{4}$");
+}
+```
+
+```csharp
+// SECURE: generated regex records timeout and options in the attribute
+[GeneratedRegex(
+    @"^[A-Z]{3}-\d{4}$",
+    RegexOptions.NonBacktracking,
+    matchTimeoutMilliseconds: 250)]
+private static partial Regex KnownCodeRegex();
+```
+
+Regex/ReDoS evidence should include:
+
+| Evidence | Required review question |
+|---|---|
+| Input source | Is the regex applied to attacker-controlled, tenant-controlled, uploaded, or otherwise unbounded data? |
+| Input bound | Is length bounded before matching, and is the bound enforced on every path that reaches the regex? |
+| Pattern risk | Does the pattern contain nested quantifiers, ambiguous alternation, backreferences, lookarounds, or other backtracking-heavy constructs? |
+| Call style | Is the match executed through static `Regex` methods, `new Regex(...)`, cached instances, `[GeneratedRegex]`, `Replace`, `Split`, or validation framework adapters? |
+| Timeout evidence | Is a local timeout supplied, or is `REGEX_DEFAULT_MATCH_TIMEOUT` configured early enough for static calls? |
+| Generated regex evidence | If `[GeneratedRegex]` is used, does the attribute specify `matchTimeoutMilliseconds` and appropriate `RegexOptions`? |
+| NonBacktracking review | Was `RegexOptions.NonBacktracking` evaluated and either applied or rejected with a compatibility reason? |
+| Exception handling | Does `RegexMatchTimeoutException` fail closed for validation and avoid unbounded retries or sensitive payload logging? |
+| Test evidence | Are bounded adversarial fixtures used to prove timeout behavior without running production load tests? |
+
+Severity guidance: untrusted unbounded input plus a catastrophic pattern and no timeout is High. A simple anchored pattern over bounded enum-like input can be Low or Not Applicable when the input bound and timeout/default-timeout evidence are present. Fail-open timeout handling should be reviewed as a validation bypass in addition to an availability issue.
 
 ---
 
@@ -931,6 +973,10 @@ Use these regex patterns to locate potential vulnerabilities in C# source files.
 | XXE (DTD) | `DtdProcessing\s*=\s*DtdProcessing\.Parse` |
 | LDAP Injection | `DirectorySearcher.*Filter\s*=.*[\+\$]` |
 | ReDoS | `new\s+Regex\s*\([^)]*\)\s*[^,]` (missing timeout parameter) |
+| ReDoS (static calls) | `Regex\.(IsMatch|Match|Matches|Replace|Split)\s*\(` |
+| ReDoS (generated regex) | `\[GeneratedRegex\s*\(` |
+| ReDoS (non-backtracking) | `RegexOptions\.NonBacktracking` (verify compatibility, not just presence) |
+| ReDoS timeout handling | `catch\s*\(\s*RegexMatchTimeoutException` |
 | Hard-coded credentials | `(Password\|Secret\|Key)\s*=\s*"[^"]{8,}"` |
 | BinaryFormatter | `BinaryFormatter` |
 | NetDataContractSerializer | `NetDataContractSerializer` |
