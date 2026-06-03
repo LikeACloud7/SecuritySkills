@@ -163,12 +163,17 @@ public IActionResult DownloadFile(string filename)
     if (Path.IsPathRooted(filename) || Path.IsPathFullyQualified(filename))
         return BadRequest("Invalid file path.");
 
+    // _uploadDir must be an app-controlled configuration path. Resolve it
+    // against a trusted app base instead of the process current directory.
     var basePath = EnsureTrailingSeparator(
         Path.GetFullPath(_uploadDir, AppContext.BaseDirectory));
     var fullPath = Path.GetFullPath(filename, basePath);
     var comparison = OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
+
+    if (string.Equals(fullPath, Path.TrimEndingDirectorySeparator(basePath), comparison))
+        return BadRequest("Directory downloads are not allowed.");
 
     if (!fullPath.StartsWith(basePath, comparison))
         return BadRequest("Invalid file path.");
@@ -181,7 +186,7 @@ public IActionResult DownloadFile(string filename)
 
 private static string EnsureTrailingSeparator(string path)
 {
-    return path.EndsWith(Path.DirectorySeparatorChar)
+    return Path.EndsInDirectorySeparator(path)
         ? path
         : path + Path.DirectorySeparatorChar;
 }
@@ -198,7 +203,7 @@ Path traversal evidence should include:
 | Link policy | Are symlinks, junctions, reparse points, bind mounts, and archive-created links disallowed, resolved, or otherwise accounted for? |
 | Open/serve behavior | Is the file opened or served immediately after validation, or through a provider scoped to the intended root, to reduce replace-after-check races? |
 
-Do not treat `Path.GetFullPath` plus a default `StartsWith` overload as complete containment proof. If the deployment OS/filesystem, link policy, archive extraction path, or final file-open behavior is unknown, mark the path traversal conclusion as Not Evaluable rather than Secure.
+Do not treat `Path.GetFullPath` plus a default `StartsWith` overload as complete containment proof. If the deployment OS/filesystem, link policy, archive extraction path, or final file-open behavior is unknown, mark the path traversal conclusion as Not Evaluable rather than Secure. If uploaded archives or user-writable directories can create symlinks or reparse points, prefer a provider scoped to the intended root, such as `PhysicalFileProvider`, or require separate link-resolution evidence before calling the path safe.
 
 ---
 
@@ -871,6 +876,7 @@ public async Task<IActionResult> Upload(IFormFile file)
     if (!AllowedExtensions.Contains(ext))
         return BadRequest("File type not allowed.");
 
+    // Also validate content signatures or magic bytes for risky file types.
     var safeFileName = $"{Guid.NewGuid()}{ext}";
     var storagePath = Path.Combine(_uploadsDir, safeFileName); // outside wwwroot
 

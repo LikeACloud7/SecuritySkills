@@ -109,6 +109,7 @@ Remediation: Canonicalize the resolved path and verify it remains within the exp
 - [ ] HTML output is encoded contextually (HTML body, attribute, JavaScript, URL).
 - [ ] OS commands, if unavoidable, use allowlisted arguments and avoid shell interpretation.
 - [ ] File path operations validate and canonicalize against a base directory.
+- [ ] Path traversal conclusions record deployment OS/filesystem comparison semantics, link/reparse-point policy, and whether the final file open or serve operation is scoped to the intended base directory.
 - [ ] Regular expressions used for validation are anchored (`^...$`) and tested for ReDoS.
 
 ---
@@ -403,6 +404,7 @@ Remediation: Validate the URL scheme (allow only `https`), resolve the hostname 
 - [ ] Uploaded files are stored outside the webroot with generated filenames.
 - [ ] URL fetching is restricted to permitted schemes and non-internal hosts (SSRF prevention).
 - [ ] Archive extraction checks for zip bombs and path traversal in entry names.
+- [ ] Archive extraction and uploaded-content workflows account for symlinks, reparse points, junctions, and link-swap behavior. If link policy or deployment filesystem behavior is unknown, mark path traversal as Not Evaluable rather than Secure.
 
 ---
 
