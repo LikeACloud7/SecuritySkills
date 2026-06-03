@@ -2,7 +2,7 @@
 
 ## Overview
 
-Language-specific supplement for dependency-scanning covering NuGet packages, .NET project files, and the .NET supply chain ecosystem. This guide targets .NET 6, .NET 7, and .NET 8 (LTS) projects using the modern SDK-style project format and the NuGet package manager.
+Language-specific supplement for dependency-scanning covering NuGet packages, .NET project files, and the .NET supply chain ecosystem. This guide targets modern supported .NET projects using the SDK-style project format and the NuGet package manager, with explicit notes for version-specific NuGet Audit behavior.
 
 ## .NET Package Manifest Files
 
@@ -115,6 +115,10 @@ Defines where NuGet resolves packages from:
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
     <add key="internal" value="https://pkgs.dev.azure.com/myorg/_packaging/myfeed/nuget/v3/index.json" />
   </packageSources>
+  <auditSources>
+    <clear />
+    <add key="nuget.org-audit" value="https://api.nuget.org/v3/index.json" />
+  </auditSources>
   <packageSourceMapping>
     <packageSource key="nuget.org">
       <package pattern="*" />
@@ -129,6 +133,7 @@ Defines where NuGet resolves packages from:
 **What to look for:**
 - Missing `<clear />` before source definitions — inherited sources from machine-level config may introduce unexpected feeds.
 - Missing `<packageSourceMapping>` — without it, NuGet resolves from all configured sources, enabling dependency confusion attacks.
+- Missing `<auditSources>` when private feeds are the only package sources — vulnerability audit may lack advisory data or produce `NU1905`.
 - Credentials stored in `nuget.config` — API keys or PATs should use environment variables or credential providers, not plaintext.
 
 ### `packages.lock.json` — NuGet Lockfile
@@ -186,7 +191,16 @@ dotnet CycloneDX MySolution.sln -o ./sbom -j -dgl
 
 ### Built-In NuGet Audit (.NET 8+)
 
-.NET 8 introduced automatic vulnerability checking during `dotnet restore`. Configure severity and behavior:
+.NET 8 introduced automatic vulnerability checking during `dotnet restore`. Do not assume `NuGetAudit=true` means transitive vulnerabilities are covered. Record the target frameworks, SDK/NuGet version, and effective `NuGetAuditMode`.
+
+Current default behavior to verify:
+
+- `NuGetAuditMode` defaults to `direct` unless explicitly configured, except projects targeting `net10.0` or higher where it defaults to `all`.
+- In multi-target projects, if any target framework selects `all`, restore can audit all target frameworks in `all` mode.
+- Private-feed-only repositories may need explicit `auditSources` so vulnerability advisories are available without allowing public package restore.
+- `NuGetAuditSuppress` suppressions must be justified, scoped, and tied to dependency-graph evidence.
+
+Configure severity, mode, and warning behavior:
 
 ```xml
 <PropertyGroup>
@@ -196,8 +210,8 @@ dotnet CycloneDX MySolution.sln -o ./sbom -j -dgl
   <!-- Minimum severity to report: low, moderate, high, critical -->
   <NuGetAuditLevel>low</NuGetAuditLevel>
 
-  <!-- Audit mode: direct (default) or all (includes transitive) -->
-  <!-- .NET 9+ supports "all"; for .NET 8, only direct dependencies are audited -->
+  <!-- Audit mode: direct or all (includes transitive) -->
+  <!-- net10.0+ defaults to all; older targets default to direct unless configured -->
   <NuGetAuditMode>all</NuGetAuditMode>
 
   <!-- Make vulnerability warnings fail the build -->
@@ -211,6 +225,34 @@ Warning codes:
 - `NU1902` — Moderate severity vulnerability
 - `NU1903` — High severity vulnerability
 - `NU1904` — Critical severity vulnerability
+- `NU1905` — Audit source did not provide vulnerability data
+
+#### NuGet Audit Evidence Table
+
+| Field | Evidence to Capture |
+|-------|---------------------|
+| Target frameworks | `TargetFramework` / `TargetFrameworks`, including `net10.0+` targets |
+| SDK/NuGet version | `global.json`, CI SDK install step, `dotnet --info`, restore log |
+| `NuGetAudit` | Effective value from project, `Directory.Build.props`, CLI, or environment |
+| `NuGetAuditMode` | `direct` / `all`, default source, and whether multi-targeting changes behavior |
+| `NuGetAuditLevel` | Minimum severity and whether low/moderate findings are intentionally ignored |
+| Audit sources | `auditSources`, package source fallback, `NU1905` handling |
+| Warning handling | `TreatWarningsAsErrors`, `WarningsAsErrors`, `WarningsNotAsErrors`, CI failure evidence |
+| Suppressions | `NuGetAuditSuppress` advisory URL, owner, reason, expiry, and non-applicability evidence |
+| Transitive-path proof | `dotnet nuget why` or equivalent dependency graph for every transitive advisory |
+| Lockfile enforcement | `packages.lock.json`, `RestorePackagesWithLockFile`, and `dotnet restore --locked-mode` in CI |
+| CPM override review | `Directory.Packages.props`, `CentralPackageVersionOverrideEnabled`, local overrides |
+| Source trust | Package Source Mapping, private namespace ownership, prefix reservation, feed credentials |
+
+#### Suppression Evidence
+
+```xml
+<ItemGroup>
+  <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-example" />
+</ItemGroup>
+```
+
+Treat suppressions as findings to validate, not as automatic passes. Require owner, reason, expiry, affected package/version, advisory URL, exploitability analysis, and the dependency path that makes the advisory reachable or not reachable.
 
 ### Full Dependency Tree Inspection
 
@@ -226,6 +268,9 @@ dotnet list package --outdated
 
 # JSON output for CI parsing (.NET 8+)
 dotnet list package --vulnerable --include-transitive --format json
+
+# Explain why a transitive package is present (required for transitive advisories)
+dotnet nuget why MySolution.sln Vulnerable.Package
 ```
 
 ## NuGet-Specific Supply Chain Risks
@@ -406,7 +451,11 @@ Add these to the supply chain risk indicators when scanning a .NET project:
 - [ ] No `packages.config` files present — fully migrated to `<PackageReference>` format
 - [ ] Central Package Management enabled via `Directory.Packages.props` for multi-project solutions
 - [ ] `<NuGetAudit>true</NuGetAudit>` set in `Directory.Build.props` or individual project files
-- [ ] NuGet audit warnings (NU1901-NU1904) treated as errors in CI builds
+- [ ] Effective `NuGetAuditMode` recorded; transitive coverage is explicit (`all`) or marked not evaluable
+- [ ] `auditSources` configured or package sources proven to provide vulnerability advisory data
+- [ ] NuGet audit warnings (NU1901-NU1905) handled intentionally in CI builds
+- [ ] `NuGetAuditSuppress` entries include owner, reason, expiry, advisory URL, and transitive-path proof
+- [ ] CI runs `dotnet restore --locked-mode` and `dotnet list package --vulnerable --include-transitive --format json`
 - [ ] SDK version pinned in `global.json` with `rollForward` set to `latestPatch` or `disable`
 - [ ] `<clear />` present in `nuget.config` `<packageSources>` to prevent config inheritance
 - [ ] No `<EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>` in any project file
@@ -420,6 +469,7 @@ Add these to the supply chain risk indicators when scanning a .NET project:
 - [NuGet Package Source Mapping](https://learn.microsoft.com/en-us/nuget/consume-packages/package-source-mapping)
 - [Central Package Management](https://learn.microsoft.com/en-us/nuget/consume-packages/central-package-management)
 - [NuGet Audit Documentation](https://learn.microsoft.com/en-us/nuget/concepts/auditing-packages)
+- [.NET 10 NuGet Audit transitive package behavior](https://learn.microsoft.com/en-us/dotnet/core/compatibility/sdk/10.0/nugetaudit-transitive-packages)
 - [CycloneDX .NET Tool](https://github.com/CycloneDX/cyclonedx-dotnet)
 - [Microsoft SBOM Tool](https://github.com/microsoft/sbom-tool)
 - [NuGet Prefix Reservation](https://learn.microsoft.com/en-us/nuget/nuget-org/id-prefix-reservation)
