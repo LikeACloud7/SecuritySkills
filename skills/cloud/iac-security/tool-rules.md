@@ -488,6 +488,8 @@ State and saved plan artifacts can contain secrets and effective configuration t
 - drift or live-cloud evidence for imported or manually changed resources
 ```
 
+Equivalent evidence for non-Terraform IaC should be captured when available: CloudFormation change sets, StackSet deployment status, drift detection, processed templates, Pulumi preview JSON, Pulumi stack exports, policy pack results, Bicep/ARM what-if output, compiled ARM JSON, and deployment operation logs.
+
 When plan JSON is available, review these fields before claiming effective security posture:
 
 ```json
@@ -521,6 +523,16 @@ resource "aws_s3_bucket_acl" "legacy" {
 ```
 
 Require owner, reason, expiry, environment scope, ticket or risk acceptance, and compensating-control evidence. Missing lifecycle evidence should be reported even if the suppression is technically valid.
+
+Use these status rules in the suppression register:
+
+| Status | Criteria |
+|--------|----------|
+| Accepted | Owner, reason, scoped resource/environment, approval or risk acceptance, compensating control, and unexpired review date are present |
+| Expired | Expiry/review date has passed, or the linked ticket/risk acceptance is closed or invalid |
+| Missing Evidence | One or more lifecycle fields are absent, even if the skip syntax is valid |
+
+If OPA, Sentinel, `terraform-compliance`, Checkov, tfsec, or KICS policy-as-code results are generated from plan output, record the policy result, exception owner, and evidence artifact alongside the raw plan JSON review.
 
 ### Lock File Presence
 

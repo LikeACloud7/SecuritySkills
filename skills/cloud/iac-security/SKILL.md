@@ -57,6 +57,7 @@ The OWASP IaC Security Cheat Sheet categorizes common IaC vulnerabilities. SLSA 
 - Variable definition files and environment-specific overrides
 - State file references (for understanding current deployment, if available)
 - Terraform plan JSON, saved plan files, remote backend metadata, CI artifact rules, and live-state or drift evidence when reviewing effective Terraform security posture
+- Equivalent deploy-time evidence for other IaC frameworks when available, such as CloudFormation change sets and stack exports, Pulumi preview JSON and stack exports, or Bicep/ARM what-if output
 
 ---
 
@@ -99,7 +100,7 @@ For detailed tool-specific rule sets, detection patterns, vulnerable code exampl
 
 ---
 
-### Step 10: Terraform Plan, State, and Drift Evidence
+### Step 10: IaC Plan, State, and Drift Evidence
 
 When reviewing Terraform, separate source-code evidence from resolved plan, state, and deployed-state evidence. Do not claim that an effective control passes when source files alone cannot prove the deployed value after variables, workspace settings, provider defaults, imported resources, ignored attributes, data sources, or generated modules are resolved.
 
@@ -112,9 +113,19 @@ Record whether the review had access to each of the following:
 - Drift or live-cloud evidence for resources that may be changed outside the reviewed module
 - Scanner suppression directives and their owner, reason, expiry, ticket or risk acceptance, environment scope, and compensating controls
 
+For non-Terraform IaC, collect the closest equivalent evidence instead of skipping this step:
+
+| Framework | Effective Evidence to Request |
+|-----------|-------------------------------|
+| CloudFormation / SAM | Change sets, processed templates, `get-template`, `describe-stacks`, StackSet deployment status, drift detection, and stack events |
+| Pulumi | `pulumi preview --json`, `pulumi stack export`, policy pack results, stack configuration, and drift evidence |
+| Bicep / ARM | `what-if` output, compiled ARM template JSON, deployment operation logs, and live-resource state |
+
 Treat Terraform state, saved plan files, `terraform show -json` output, and CI plan artifacts as sensitive unless the review proves they are redacted, encrypted, access-controlled, and retained safely. Values marked `sensitive = true` can still persist in state and plan artifacts.
 
 When Terraform JSON plan evidence is available, inspect `resource_changes[].change.actions`, `before`, `after`, and `after_unknown` for destructive changes, privilege expansion, public exposure, replacements, and unknown-at-apply security values. If plan/state/live evidence is unavailable for a control that depends on resolved values or deployed state, mark the result as `Not Evaluable from Source Only` instead of passing or failing it from source alone.
+
+Use `Fail` when the reviewed source or available plan/state/live evidence directly proves a violation, such as hardcoded secrets, public ingress, missing encryption, or unbounded IAM in the reviewed artifact. Use `Not Evaluable from Source Only` when the result depends on resolved values, imported resources, provider defaults, deployment account context, runtime drift, or policy-as-code results that were not available. Record the missing evidence rather than downgrading a source-proven finding.
 
 ---
 
@@ -206,6 +217,11 @@ Produce the final report using the structure defined in the Output Format sectio
 |-------------|-------------|------|-------|--------|--------|-------|--------------------------|----------------------|--------|
 | <checkov:skip / tfsec:ignore / kics ignore> | <path:line> | <rule id> | <owner> | <reason> | <date> | <env/resource> | <link/id> | <control> | Accepted / Expired / Missing Evidence |
 
+Suppression status values:
+- **Accepted:** owner, reason, scope, approval or risk acceptance, compensating control, and unexpired review date are present.
+- **Expired:** expiry or review date has passed, or the linked ticket/risk acceptance is no longer valid.
+- **Missing Evidence:** the suppression may be technically scoped, but one or more lifecycle fields are absent.
+
 ### Supply Chain Assessment (SLSA Alignment)
 - Module pinning: <pinned / partially pinned / unpinned>
 - Provider pinning: <pinned / unpinned>
@@ -276,7 +292,8 @@ This skill applies checks equivalent to the following high-impact rules:
 7. **Source-only overconfidence.** Source files do not prove effective deployed security when variables, workspace settings, provider defaults, imported resources, ignored attributes, or manual drift are involved. Use `Not Evaluable from Source Only` when plan/state/live evidence is required but unavailable.
 8. **Plan JSON blind spots.** Terraform JSON plans expose `resource_changes[].change.actions`, `before`, `after`, and `after_unknown`. Review those fields for destructive changes, privilege expansion, replacements, public exposure, and unknown-at-apply security values.
 9. **Suppression comments without lifecycle evidence.** `checkov:skip`, `tfsec:ignore`, and KICS ignore directives need owner, reason, expiry, environment scope, ticket or risk acceptance, and compensating-control evidence. Missing lifecycle evidence should be reported.
-10. **Provider-specific encryption defaults.** Some providers encrypt by default (e.g., AWS S3 since January 2023). Know the defaults before flagging missing explicit encryption configuration.
+10. **Ignoring policy-as-code plan checks.** OPA, Sentinel, and `terraform-compliance` can evaluate plan output before apply. If those policy results are part of the pipeline, include pass/fail evidence and policy exceptions in the evidence-origin summary.
+11. **Provider-specific encryption defaults.** Some providers encrypt by default (e.g., AWS S3 since January 2023). Know the defaults before flagging missing explicit encryption configuration.
 
 ---
 
@@ -318,5 +335,5 @@ This skill applies checks equivalent to the following high-impact rules:
 
 ## Changelog
 
-- **1.1.0** -- Added Terraform plan/state evidence gates, evidence-origin reporting, source-only not-evaluable outcomes, and suppression lifecycle tracking.
+- **1.1.0** -- Added Terraform and equivalent IaC plan/state evidence gates, evidence-origin reporting, source-only not-evaluable outcomes, and suppression lifecycle tracking.
 - **1.0.0** -- Initial release. Coverage of eight security domains across Terraform, CloudFormation, Pulumi, and Bicep with Checkov/tfsec/KICS rule equivalents.
