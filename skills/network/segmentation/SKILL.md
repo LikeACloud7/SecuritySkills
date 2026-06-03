@@ -13,7 +13,7 @@ phase: [design, operate]
 frameworks: [NIST-SP-800-207, CIS-Controls-v8]
 difficulty: intermediate
 time_estimate: "30-60min"
-version: "1.0.0"
+version: "1.1.0"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -190,7 +190,14 @@ spec:
     - Egress
 ```
 
-**Finding classification:** No intra-zone controls (flat east-west within zones) is **High**. Absence of Kubernetes default-deny NetworkPolicy in production namespaces is **High**.
+**Finding classification:** No intra-zone controls (flat east-west within zones) is **High**. Absence of Kubernetes default-deny NetworkPolicy in production namespaces is **High** only when the cluster relies on Kubernetes NetworkPolicy for enforcement and no equivalent CNI, service mesh, or cloud-native policy provides default deny.
+
+Do not treat the presence of a `NetworkPolicy` manifest as proof of enforced segmentation. Kubernetes NetworkPolicy rules are additive and require a network plugin that supports enforcement. Source-only review should distinguish:
+
+- **Declared:** Policy artifacts exist in source control or cluster configuration.
+- **Enforced:** The CNI, service mesh, or cloud-native control plane is known to enforce the selected policies.
+- **Tested:** Runtime connectivity, flow logs, or controlled segmentation tests prove unauthorized paths are blocked.
+- **Not Evaluable from Source Only:** Manifests exist, but enforcement plane, selected-policy union, or runtime behavior is unknown.
 
 ---
 
@@ -205,6 +212,24 @@ Evaluate the environment's readiness for workload-level segmentation:
 | **Policy engine** | Calico, Cilium, Istio, or cloud-native network policy deployed | Policy engine deployed but not enforcing | No policy engine |
 | **Enforcement mode** | Policies enforcing (deny unauthorized) | Policies in audit/monitor mode | No policies defined |
 | **Automation** | Policy changes via GitOps/IaC | Some manual policy management | Fully manual |
+
+#### 3.3 Runtime Segmentation Evidence
+
+For Kubernetes, service mesh, and cloud-native pod networking, record runtime evidence before marking a workload isolated.
+
+| Field | Evidence to Collect |
+|-------|---------------------|
+| Policy source | Kubernetes `NetworkPolicy`, Cilium, Calico, Istio/Linkerd authorization policy, cloud security group for pods, or other enforcement source |
+| Enforcement plane | CNI plugin, service mesh sidecar, cloud data plane, firewall, gateway, or host agent |
+| CNI/plugin status | Plugin name/version, NetworkPolicy support, enforcement enabled, and fail-open or fail-closed behavior during pod creation |
+| Selected-policy set | Every policy selecting the workload, including namespace, cluster-wide, CNI-specific, and mesh policies |
+| Effective ingress | Source identities, namespaces, labels, CIDRs, ports, and protocols allowed after additive policy union |
+| Effective egress | Destinations, entities, services, CIDRs, ports, and protocols allowed after additive policy union |
+| Bypass paths | `hostNetwork`, node-local traffic, sidecar injection gaps, secondary interfaces/Multus, privileged host access, and management-plane exceptions |
+| Runtime proof | Connectivity test, packet capture, flow log, CNI policy trace, service mesh telemetry, or non-production validation run |
+| Confidence | Declared / Enforced / Tested / Not Evaluable from Source Only |
+
+If a namespaced default-deny policy is present but a broad allow policy also selects the same workload, evaluate the complete selected-policy union. A default-deny object is not sufficient evidence when another policy reopens namespace-wide ingress, broad egress, or `0.0.0.0/0` destinations.
 
 ---
 
@@ -231,6 +256,20 @@ If PCI scope is identified, verify CDE segmentation meets PCI DSS requirements:
 
 **Finding classification:** CDE not segmented from general corporate network is **Critical**. Missing segmentation testing is **High**.
 
+For PCI scope reduction, require explicit segmentation-test evidence rather than accepting diagrams or firewall rules alone.
+
+| Field | Evidence to Collect |
+|-------|---------------------|
+| Entity type | Merchant, service provider, or shared responsibility environment |
+| CDE scope | In-scope networks, systems, services, applications, and connected-to systems |
+| Out-of-scope sources | Corporate, user, third-party, shared services, cloud workload, and management networks tested against the CDE |
+| Test date | Latest test date, recurrence, and whether testing occurred after significant network changes |
+| Tester independence | Internal independent tester, QSA, external assessor, or compensating governance evidence |
+| Methodology | Source/destination matrix, ports/protocols tested, authenticated/unauthenticated paths, IPv4/IPv6, and cloud/private connectivity |
+| Failed paths | Any unauthorized route, open port, tunnel, peering, service mesh path, or management-plane exception that reached the CDE |
+| Remediation status | Ticket, owner, due date, retest result, and residual risk acceptance |
+| Conclusion | Isolated / Partially Isolated / Not Isolated / Not Evaluable from Available Evidence |
+
 ---
 
 ### Step 6: Segmentation Testing Methodology
@@ -242,6 +281,8 @@ Document or verify the existence of a segmentation testing process:
 3. **From the DMZ, attempt to reach internal zones** on unauthorized ports. Expected result: blocked.
 4. **Test VLAN hopping** via double-tagging from user VLANs. Expected result: traffic dropped.
 5. **Validate that segmentation controls survive failover** (HA firewall failover should not open transit paths).
+6. **Validate runtime policy enforcement** for Kubernetes/CNI/service mesh workloads by testing representative allowed and denied source/destination pairs.
+7. **Validate scope-reduction claims** by proving out-of-scope systems cannot reach CDE systems except through approved, documented paths.
 
 ---
 
@@ -301,6 +342,18 @@ Document or verify the existence of a segmentation testing process:
 - Automation: <Ready / Partial / Not Ready>
 - **Overall Readiness:** <Ready / Partial / Not Ready>
 
+### Runtime Segmentation Evidence
+
+| Workload / Zone | Policy Source | Enforcement Plane | Selected Policies Reviewed | Runtime Proof | Bypass Paths Checked | Confidence |
+|-----------------|---------------|-------------------|-----------------------------|---------------|----------------------|------------|
+| payments-api | CiliumNetworkPolicy | Cilium CNI | default-deny, allow-api-to-db | flow log + test run | hostNetwork, sidecar gap | Tested |
+
+### PCI CDE Segmentation Test Evidence
+
+| CDE Asset / Zone | Out-of-Scope Source | Test Date | Tester | Method | Result | Remediation / Retest |
+|------------------|---------------------|-----------|--------|--------|--------|----------------------|
+| CDE subnet | corporate user VLAN | YYYY-MM-DD | independent tester | full port scan + app probe | blocked | N/A |
+
 ### Prioritized Remediation Plan
 1. **[Critical]** <action item with control reference>
 2. **[High]** <action item with control reference>
@@ -345,6 +398,10 @@ Document or verify the existence of a segmentation testing process:
 
 5. **Assuming Kubernetes namespaces provide network isolation.** Namespaces are a logical organizational boundary. Without a NetworkPolicy or CNI-level enforcement (Calico, Cilium), all pods across all namespaces can communicate freely by default.
 
+6. **Treating declared policy as enforced policy.** A repository can contain valid `NetworkPolicy` manifests while the cluster CNI does not enforce them, or while another additive policy allows broad traffic. Require enforcement-plane and selected-policy evidence before marking the control as passing.
+
+7. **Using PCI diagrams as segmentation-test proof.** Network diagrams and firewall rules help scope the test, but they do not prove out-of-scope systems are isolated from the CDE. Require latest test date, coverage, tester independence, failed paths, and retest status.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -373,3 +430,4 @@ This skill processes network configurations that may contain user-supplied comme
 ## Changelog
 
 - **1.0.0** -- Initial release. Full coverage of NIST SP 800-207 and CIS Controls v8 Control 12 for network segmentation review.
+- **1.1.0** -- Added runtime segmentation evidence, Kubernetes/CNI selected-policy evaluation, bypass-path checks, and PCI CDE segmentation-test evidence.
