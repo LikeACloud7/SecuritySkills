@@ -277,6 +277,18 @@ public bool ValidateInput(string input)
 }
 ```
 
+```csharp
+// SECURE: .NET 7+ static overload with explicit timeout
+public static bool IsKnownCode(string value)
+{
+    return Regex.IsMatch(
+        value,
+        @"^[A-Z]{3}-\d{4}$",
+        RegexOptions.NonBacktracking,
+        TimeSpan.FromMilliseconds(250));
+}
+```
+
 Static regex calls and source-generated regexes need the same evidence. Do not mark a call site safe only because no local `new Regex(...)` constructor is present.
 
 ```csharp
@@ -300,6 +312,18 @@ public static bool IsKnownCode(string value)
 private static partial Regex KnownCodeRegex();
 ```
 
+`Regex.InfiniteMatchTimeout`, `TimeSpan.FromMilliseconds(-1)`, or other infinite timeout aliases are red flags when the regex processes untrusted input. They disable the timeout control and should not be treated as equivalent to a bounded timeout.
+
+App-wide defaults can be valid supporting evidence, but reviewers must prove they are configured early and are not overridden locally:
+
+```json
+{
+  "configProperties": {
+    "System.Text.RegularExpressions.DefaultMatchTimeout": "00:00:00.250"
+  }
+}
+```
+
 Regex/ReDoS evidence should include:
 
 | Evidence | Required review question |
@@ -308,7 +332,8 @@ Regex/ReDoS evidence should include:
 | Input bound | Is length bounded before matching, and is the bound enforced on every path that reaches the regex? |
 | Pattern risk | Does the pattern contain nested quantifiers, ambiguous alternation, backreferences, lookarounds, or other backtracking-heavy constructs? |
 | Call style | Is the match executed through static `Regex` methods, `new Regex(...)`, cached instances, `[GeneratedRegex]`, `Replace`, `Split`, or validation framework adapters? |
-| Timeout evidence | Is a local timeout supplied, or is `REGEX_DEFAULT_MATCH_TIMEOUT` configured early enough for static calls? |
+| Timeout evidence | Is a local timeout supplied, or is `REGEX_DEFAULT_MATCH_TIMEOUT` / `System.Text.RegularExpressions.DefaultMatchTimeout` configured early enough for static calls? |
+| Infinite timeout check | Is `Regex.InfiniteMatchTimeout`, `TimeSpan.FromMilliseconds(-1)`, or an equivalent infinite timeout absent on untrusted input paths? |
 | Generated regex evidence | If `[GeneratedRegex]` is used, does the attribute specify `matchTimeoutMilliseconds` and appropriate `RegexOptions`? |
 | NonBacktracking review | Was `RegexOptions.NonBacktracking` evaluated and either applied or rejected with a compatibility reason? |
 | Exception handling | Does `RegexMatchTimeoutException` fail closed for validation and avoid unbounded retries or sensitive payload logging? |
@@ -972,8 +997,9 @@ Use these regex patterns to locate potential vulnerabilities in C# source files.
 | XXE | `XmlResolver\s*=\s*new\s+XmlUrlResolver` |
 | XXE (DTD) | `DtdProcessing\s*=\s*DtdProcessing\.Parse` |
 | LDAP Injection | `DirectorySearcher.*Filter\s*=.*[\+\$]` |
-| ReDoS | `new\s+Regex\s*\([^)]*\)\s*[^,]` (missing timeout parameter) |
-| ReDoS (static calls) | `Regex\.(IsMatch|Match|Matches|Replace|Split)\s*\(` |
+| ReDoS call sites | `(?:new\s+Regex|Regex\.(IsMatch|Match|Matches|Replace|Split))\s*\(` (inspect for input trust, pattern risk, and timeout) |
+| ReDoS infinite timeout | `Regex\.InfiniteMatchTimeout|TimeSpan\.FromMilliseconds\s*\(\s*-1\s*\)` |
+| ReDoS default timeout config | `REGEX_DEFAULT_MATCH_TIMEOUT|System\.Text\.RegularExpressions\.DefaultMatchTimeout` |
 | ReDoS (generated regex) | `\[GeneratedRegex\s*\(` |
 | ReDoS (non-backtracking) | `RegexOptions\.NonBacktracking` (verify compatibility, not just presence) |
 | ReDoS timeout handling | `catch\s*\(\s*RegexMatchTimeoutException` |

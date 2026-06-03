@@ -109,7 +109,7 @@ Remediation: Canonicalize the resolved path and verify it remains within the exp
 - [ ] HTML output is encoded contextually (HTML body, attribute, JavaScript, URL).
 - [ ] OS commands, if unavoidable, use allowlisted arguments and avoid shell interpretation.
 - [ ] File path operations validate and canonicalize against a base directory.
-- [ ] Regular expressions used for validation are anchored (`^...$`) and tested for ReDoS.
+- [ ] Regular expressions used for validation are anchored (`^...$`), length-bounded, timeout-protected, and reviewed for ReDoS; `Regex.InfiniteMatchTimeout` or equivalent infinite timeouts are not accepted on untrusted input.
 
 ---
 
