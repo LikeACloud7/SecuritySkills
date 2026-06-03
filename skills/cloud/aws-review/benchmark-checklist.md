@@ -45,6 +45,18 @@ resource "aws_organizations_policy" {
 }
 ```
 
+Record the SCP scope before using it to calibrate severity:
+
+```text
+- policy id/name
+- attached root, OU, or account targets
+- excluded or suspended accounts
+- management account evidence source
+- whether permission boundaries, session policies, and resource policies were also reviewed
+```
+
+SCPs set maximum permissions; they do not grant access and do not make a broad IAM allow safe without the underlying IAM and resource-policy evidence.
+
 ### CIS 1.8 -- Ensure IAM password policy requires minimum length of 14 or greater
 
 **What to look for in Terraform:**
@@ -144,7 +156,29 @@ Check for certificate management configurations.
 ```
 aws_accessanalyzer_analyzer
 type = "ACCOUNT"
+type = "ORGANIZATION"
 ```
+
+For multi-account reviews, record whether each analyzer is account-scoped or organization-scoped:
+
+```hcl
+resource "aws_accessanalyzer_analyzer" "org" {
+  analyzer_name = "organization-zone"
+  type          = "ORGANIZATION"
+}
+```
+
+Evidence fields:
+
+```text
+- analyzer type: ACCOUNT / ORGANIZATION
+- owning account and delegated administrator account
+- Regions with analyzers enabled
+- covered accounts/OUs and excluded accounts
+- external-access and unused-access coverage if available
+```
+
+If only a single account analyzer is available, mark organization-wide Access Analyzer posture as `Not Evaluable from Single Account`.
 
 ### CIS 1.21 -- Ensure IAM users are managed centrally via identity federation or AWS Organizations for multi-account environments
 
@@ -274,7 +308,18 @@ Evaluate logging configurations against Section 3 recommendations.
 resource "aws_cloudtrail" {
   is_multi_region_trail = true
   enable_logging        = true
+  is_organization_trail = true
 }
+```
+
+Separate account trails from organization trails. A member-account trail can satisfy local logging evidence, but organization-wide conclusions require:
+
+```text
+- is_organization_trail = true or equivalent CLI/API evidence
+- trail owning account: management or delegated administrator
+- covered accounts/OUs and excluded or suspended accounts
+- home Region, multi-Region setting, and opt-in Region coverage
+- delivery status and log file validation status
 ```
 
 ### CIS 3.2 -- Ensure CloudTrail log file validation is enabled
@@ -403,7 +448,23 @@ resource "aws_cloudwatch_metric_alarm" {
 ```
 aws_securityhub_account
 aws_securityhub_standards_subscription
+aws_securityhub_organization_admin_account
+aws_securityhub_configuration_policy
+aws_securityhub_configuration_policy_association
 ```
+
+For organization reviews, Security Hub evidence should identify central configuration scope:
+
+```text
+- delegated administrator account
+- home Region and linked Regions
+- centrally managed accounts/OUs
+- self-managed targets and exceptions
+- standards/control policy associations
+- finding aggregation or configuration policy export timestamp
+```
+
+A delegated administrator export is not automatically full-organization evidence unless policy associations, linked Regions, and self-managed exceptions are recorded.
 
 ---
 
