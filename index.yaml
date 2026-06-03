@@ -6,7 +6,7 @@
 meta:
   version: "1.0.0"
   last_updated: "2026-03-05"
-  skill_count: 45
+  skill_count: 46
   role_count: 5
 
 tag_vocabulary:
@@ -63,6 +63,18 @@ skills:
     difficulty: intermediate
     time_estimate: "20-40min"
     file: skills/appsec/api-security/SKILL.md
+    compatible_tools: [claude-code, gemini-cli, cursor, codex-cli, openclaw, kiro]
+
+  - id: saml-sso-security
+    name: "SAML SSO Security Review"
+    tags: [appsec, saml, sso, xml-signature, authentication]
+    role: [appsec-engineer, security-engineer]
+    phase: [design, build, review]
+    activity: [review, assess]
+    frameworks: [SAML-2.0, OASIS-SAML-Core, OASIS-SAML-Profiles, OWASP-ASVS-5.0, OWASP-SAML-Cheat-Sheet]
+    difficulty: advanced
+    time_estimate: "45-90min"
+    file: skills/appsec/saml-sso-security/SKILL.md
     compatible_tools: [claude-code, gemini-cli, cursor, codex-cli, openclaw, kiro]
 
   - id: dependency-scanning
