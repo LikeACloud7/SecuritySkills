@@ -474,6 +474,54 @@ terraform {
 
 **Checkov:** CKV_AWS_145 (S3 backend encryption)
 
+### Terraform Plan and State Artifact Evidence
+
+State and saved plan artifacts can contain secrets and effective configuration that is not visible in source files. Treat the following as sensitive inputs and report `Not Evaluable from Source Only` when a control depends on them but they are unavailable:
+
+```text
+# Evidence to request or inspect
+- terraform show -json <saved-plan>
+- Terraform Cloud/HCP run plan JSON and workspace variables
+- CI logs and uploaded plan artifacts
+- remote backend IAM policy, encryption settings, lock table, and retention
+- local terraform.tfstate, *.tfstate.backup, crash logs, and saved tfplan files
+- drift or live-cloud evidence for imported or manually changed resources
+```
+
+When plan JSON is available, review these fields before claiming effective security posture:
+
+```json
+{
+  "resource_changes": [
+    {
+      "address": "aws_iam_policy.admin",
+      "change": {
+        "actions": ["update"],
+        "before": {"policy": "...limited..."},
+        "after": {"policy": "{\"Statement\":[{\"Action\":\"*\",\"Resource\":\"*\"}]}"},
+        "after_unknown": {}
+      }
+    }
+  ]
+}
+```
+
+Flag risky transitions such as `create`, `delete`, `replace`, privilege expansion, public exposure, encryption disablement, or security-relevant `after_unknown` values. Do not treat `sensitive = true` as proof that secrets are absent from state, saved plans, `terraform show -json`, CI logs, or downloadable artifacts.
+
+### Scanner Suppression Evidence
+
+Suppression directives should be inventoried and validated rather than trusted:
+
+```hcl
+#checkov:skip=CKV_AWS_20:temporary public access for migration
+#tfsec:ignore:aws-s3-no-public-access-with-acl
+resource "aws_s3_bucket_acl" "legacy" {
+  acl = "public-read"
+}
+```
+
+Require owner, reason, expiry, environment scope, ticket or risk acceptance, and compensating-control evidence. Missing lifecycle evidence should be reported even if the suppression is technically valid.
+
 ### Lock File Presence
 
 Verify `.terraform.lock.hcl` exists and is committed:
