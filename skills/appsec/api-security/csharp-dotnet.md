@@ -947,6 +947,7 @@ app.MapGet("/users/{id}", async Task<Results<Ok<UserResponse>, NotFound>> (
 ### Minimal API Form and File Upload Antiforgery
 
 **CWE:** CWE-352
+**ASVS Control:** V4.2.2
 
 In ASP.NET Core Minimal APIs, form and file-upload endpoints are a separate CSRF review path from ordinary JSON APIs. Endpoints that bind `IFormFile`, `IFormFileCollection`, `IFormCollection`, or other form data can require antiforgery token validation when browser credentials such as cookies are accepted. Reviewers must not treat `.RequireAuthorization()` as sufficient CSRF evidence for state-changing form endpoints.
 
@@ -988,6 +989,13 @@ app.MapPost("/account/avatar", async (IFormFile file, ClaimsPrincipal user) =>
     return Results.Ok();
 })
 .RequireAuthorization();
+
+app.MapGet("/antiforgery/token", (IAntiforgery antiforgery, HttpContext context) =>
+{
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    return Results.Ok(new { token = tokens.RequestToken });
+})
+.RequireAuthorization();
 ```
 
 #### Not Applicable with Evidence
@@ -1024,6 +1032,16 @@ Only mark antiforgery as Not Applicable when the review confirms that the endpoi
 | Token acquisition path | How legitimate browser clients get and submit the antiforgery token |
 | Data Protection | Key persistence and sharing for server farms or multiple instances |
 | Conclusion | Secure / Vulnerable / Not Applicable / Not Evaluable |
+
+#### Severity Guidance
+
+| Condition | Severity |
+|---|---|
+| Cookie-authenticated state-changing form or upload endpoint with `DisableAntiforgery()` and no alternate CSRF control | High |
+| `AddAntiforgery()` configured but `UseAntiforgery()` missing for browser-reachable form endpoints | High |
+| Browser client has no documented token acquisition path | Medium |
+| Server farm lacks Data Protection key persistence or sharing evidence | Medium |
+| Bearer/API-key-only non-browser endpoint with no cookie credentials accepted | Not Applicable with evidence |
 
 #### Review Hotspots
 
