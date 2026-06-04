@@ -324,6 +324,33 @@ App-wide defaults can be valid supporting evidence, but reviewers must prove the
 }
 ```
 
+Timeout handling must fail closed for validation decisions:
+
+```csharp
+// VULNERABLE: timeout becomes a validation bypass
+try
+{
+    return ValidationRegex.IsMatch(userInput);
+}
+catch (RegexMatchTimeoutException)
+{
+    return true;
+}
+```
+
+```csharp
+// SECURE: reject on timeout and avoid logging the full attacker-controlled payload
+try
+{
+    return ValidationRegex.IsMatch(userInput);
+}
+catch (RegexMatchTimeoutException ex)
+{
+    _logger.LogWarning(ex, "Regex timeout for input length {Length}", userInput.Length);
+    return false;
+}
+```
+
 Regex/ReDoS evidence should include:
 
 | Evidence | Required review question |
