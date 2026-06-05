@@ -12,7 +12,7 @@ phase: [assess, operate]
 frameworks: [AICPA-TSC, NIST-CSF-2.0]
 difficulty: intermediate
 time_estimate: "60-120min"
-version: "1.0.0"
+version: "1.1.0"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -42,7 +42,7 @@ Before beginning the gap analysis, ensure the following are available:
 - CI/CD pipeline configurations
 - Logging and monitoring configurations
 - Incident response documentation
-- Vendor and third-party service inventory
+- Vendor and third-party service inventory, including available SOC 2 reports, bridge letters, DPAs/BAAs, and subservice organization listings
 
 ## Constraints
 
@@ -111,6 +111,25 @@ System Description Boundary:
 - Procedures: ___
 - Data: ___
 ```
+
+---
+
+### Step 1.4: Reliance Boundary, CUECs, and Subservice Organizations
+
+Before scoring CC9.2 or relying on a vendor SOC 2 report as evidence, record how the organization depends on external service providers and what controls must be operated by the user entity.
+
+| Field | Evidence to Capture |
+|-------|---------------------|
+| Vendor / subservice organization | Name, service, criticality, data types, and in-scope system dependency |
+| Report type and period | SOC 2 Type I / Type II, audit period, report date, and coverage gap to the readiness period |
+| Subservice method | Inclusive / carve-out / not stated, with the downstream provider list reviewed |
+| CUECs | Complementary user entity controls that the organization must operate for the vendor controls to be effective |
+| CSOCs | Complementary subservice organization controls when the vendor depends on another provider |
+| Bridge evidence | Bridge letter, updated trust-center assertion, or alternate monitoring evidence for report-period gaps |
+| Exceptions and qualifications | Auditor exceptions, failed controls, management responses, and remediation evidence |
+| Review disposition | Accepted / Needs remediation / Not Evaluable, with owner and next review date |
+
+Do not count a vendor SOC 2 report as complete evidence when its CUECs are not mapped to internal controls, its subservice organizations are carved out without separate assurance, or the report period does not cover the readiness period without bridge evidence. If vendor reports are unavailable because of NDA, procurement status, or access restrictions, mark the reliance as `Not Evaluable` instead of treating the vendor as low risk.
 
 ---
 
@@ -321,6 +340,7 @@ Prioritize remediation by audit readiness impact. Items that would result in exa
 - [ ] Implement change management controls in CI/CD pipeline (CC8.1)
 - [ ] Document and publish incident response plan (CC7.3, CC7.4)
 - [ ] Initiate vendor inventory and begin collecting vendor SOC 2 reports (CC9.2)
+- [ ] Build a CUEC / subservice organization reliance matrix for critical vendors (CC9.2)
 - [ ] Conduct initial risk assessment (CC3.2)
 
 **Days 31-60: Program Development**
@@ -332,6 +352,7 @@ Prioritize remediation by audit readiness impact. Items that would result in exa
 - [ ] Establish control monitoring and deficiency tracking (CC4.1, CC4.2)
 - [ ] Implement backup monitoring and conduct restoration test (A1.2, A1.3)
 - [ ] Complete vendor risk assessments for critical vendors (CC9.2)
+- [ ] Request bridge letters or alternate assurance for vendor SOC 2 report-period gaps (CC9.2)
 
 **Days 61-90: Maturation and Evidence Collection**
 - [ ] Conduct incident response tabletop exercise (CC7.4)
@@ -352,6 +373,7 @@ Prioritize remediation by audit readiness impact. Items that would result in exa
 - Perform annual security awareness training refresh
 - Review and update policies annually
 - Collect vendor SOC 2 reports annually
+- Review CUECs, subservice organization carve-outs, bridge letters, and vendor exceptions during each vendor refresh
 - Conduct annual DR test
 - Perform annual incident response tabletop exercise
 
@@ -366,8 +388,9 @@ When performing a SOC 2 gap analysis, produce the following deliverables:
 3. **Category Summary**: Average maturity score per category with narrative assessment.
 4. **Critical Findings**: List of all criteria scored 0 or 1, with specific gap descriptions and remediation recommendations.
 5. **Evidence Checklist**: Customized evidence requirements based on in-scope criteria, marking items as Exists / Partial / Missing.
-6. **90-Day Remediation Roadmap**: Prioritized action items with owners, deadlines, and dependencies.
-7. **Overall Readiness Assessment**: Go/no-go recommendation for engaging a SOC 2 auditor.
+6. **Vendor Reliance Matrix**: For critical vendors and subservice organizations, record SOC 2 period, CUECs, CSOCs, carve-out/inclusive method, bridge evidence, exceptions, owner, and review disposition.
+7. **90-Day Remediation Roadmap**: Prioritized action items with owners, deadlines, and dependencies.
+8. **Overall Readiness Assessment**: Go/no-go recommendation for engaging a SOC 2 auditor.
 
 ## Prompt Injection Safety Notice
 
@@ -393,3 +416,8 @@ This skill processes user-supplied content including compliance documentation, p
 - The gap analysis is based on information available in the codebase and documentation. It cannot assess controls that exist only in human processes without documentation.
 - Scoring is subjective and should be validated by the organization's security leadership and, ideally, a qualified auditor.
 - This analysis uses the 2017 AICPA Trust Services Criteria (with 2022 updates). Verify with your auditor that these criteria are current for your engagement.
+
+## Changelog
+
+- **1.1.0** -- Added vendor reliance boundary guidance for CUECs, CSOCs, subservice organization methods, bridge letters, and CC9.2 output evidence.
+- **1.0.0** -- Initial release.
