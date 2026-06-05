@@ -13,7 +13,7 @@ phase: [assess, operate]
 frameworks: [HIPAA-Security-Rule, 45-CFR-164-Subpart-C]
 difficulty: intermediate
 time_estimate: "60-120min"
-version: "1.0.1"
+version: "1.0.2"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -68,7 +68,7 @@ The HIPAA Security Rule (45 CFR Part 164, Subpart C) establishes national standa
 - Network architecture and data flow diagrams showing ePHI paths
 - Current risk analysis documentation (or confirmation none exists)
 - Security policies and procedures documentation
-- Business Associate Agreements (BAAs) inventory
+- Business Associate Agreements (BAAs) inventory, including subcontractors, ePHI data flows, service purpose, effective dates, and breach-notification terms
 - Incident response and breach notification procedures
 - Access control configurations and user provisioning processes
 - Backup and disaster recovery documentation
@@ -242,6 +242,20 @@ Hybrid Entity: [Yes/No] — If yes, document healthcare component designation
 - Document satisfactory assurances through a written contract or arrangement meeting requirements of 164.314(a)
 - Verify BAAs are in place for all BAs
 - Verify BAAs contain required provisions (security obligations, breach notification, termination)
+- Verify BAAs are mapped to the specific services, ePHI data flows, systems, and subcontractors they cover
+- Verify missing, expired, unsigned, or scope-mismatched BAAs are treated as non-compliance rather than ordinary vendor-risk observations
+
+Business associate evidence should include:
+
+| Field | Evidence to Capture |
+|-------|---------------------|
+| BA / subcontractor | Legal entity name, service, owner, criticality, and CE/BA/Subcontractor role |
+| ePHI involvement | Creates / receives / maintains / transmits ePHI, data type, system, and transfer path |
+| BAA status | Executed / pending / expired / not applicable, execution date, effective date, and termination date |
+| Required provisions | Safeguards, subcontractor flowdown, incident reporting, breach notification timing, termination, return/destruction of PHI |
+| Subcontractor chain | Known subcontractors handling ePHI and evidence they are bound to the same restrictions and conditions |
+| Operational evidence | Access scope, encryption/logging expectations, audit rights, security incident contact, and last review date |
+| Gaps | Missing BAA, stale BAA, service not covered, subcontractor not covered, deficient breach notification clause, or missing return/destruction terms |
 
 ---
 
@@ -346,6 +360,8 @@ Hybrid Entity: [Yes/No] — If yes, document healthcare component designation
   - Ensure any subcontractor that creates/receives/maintains/transmits ePHI agrees to same restrictions and conditions
   - Report security incidents to the CE
   - Authorize termination of contract if BA violates material term
+- Review whether the BAA matches the actual service scope. A generic master agreement is insufficient when new products, support access, analytics, AI tooling, offshore operations, or storage locations introduce ePHI handling not covered by the executed terms.
+- For subcontractors, require evidence of flowdown obligations or document the gap as non-compliance. Do not rely on a BA's general security certification as a substitute for contractual flowdown under 164.314(a)(2)(i).
 
 **164.314(a)(2)(ii) — Other Arrangements (R)**
 - When a CE and BA are both governmental entities, alternative arrangements may be used
@@ -456,6 +472,12 @@ Assess:
 - BAA Inventory: [count of BAs, count with BAAs in place]
 - Missing BAAs: [list]
 - BAA Deficiencies: [missing required provisions]
+- Subcontractor Flowdown Gaps: [list]
+- Stale / Scope-Mismatched BAAs: [list]
+
+| BA / Subcontractor | Role | ePHI Data Flow | BAA Status | Required Provisions Present? | Subcontractor Flowdown | Breach Notice SLA | Return / Destruction Terms | Last Review | Disposition |
+|--------------------|------|----------------|------------|------------------------------|------------------------|-------------------|----------------------------|-------------|-------------|
+| [vendor] | CE / BA / Subcontractor | [system / transfer path] | Executed / Missing / Expired / Pending | Yes / No / Partial | Yes / No / Not Evaluable | [timeframe] | Yes / No | [date] | Compliant / Gap / Not Evaluable |
 
 ## Breach Notification Readiness
 [Assessment of breach response procedures, notification capability, HHS reporting readiness]
@@ -567,9 +589,11 @@ Policies, Procedures, and Documentation — 164.316
 
 3. **Missing or deficient Business Associate Agreements.** Organizations frequently fail to identify all Business Associates (cloud providers, IT support, shredding companies, EHR vendors, billing services) or execute BAAs that meet the minimum requirements of 164.314(a)(2)(i). Every entity that creates, receives, maintains, or transmits ePHI on behalf of the CE must have a BAA.
 
-4. **Confusing HIPAA Security Rule with HIPAA Privacy Rule.** The Security Rule (Subpart C) applies only to ePHI and focuses on technical, physical, and administrative safeguards. The Privacy Rule (Subpart E) covers all PHI including paper records and addresses permitted uses and disclosures. A Security Rule review does not satisfy Privacy Rule obligations and vice versa.
+4. **Treating vendor security assurance as a BAA substitute.** SOC 2 reports, ISO certificates, security questionnaires, and cloud provider attestations can support vendor risk review, but they do not replace a BAA or subcontractor flowdown evidence when the vendor creates, receives, maintains, or transmits ePHI.
 
-5. **Failing to document the "why" behind security decisions.** The Security Rule is designed to be flexible and scalable. But that flexibility requires documentation. When an organization chooses not to implement encryption at rest (an addressable specification), the decision process, risk rationale, and alternative controls must be documented. OCR auditors expect written justification, not verbal explanations.
+5. **Confusing HIPAA Security Rule with HIPAA Privacy Rule.** The Security Rule (Subpart C) applies only to ePHI and focuses on technical, physical, and administrative safeguards. The Privacy Rule (Subpart E) covers all PHI including paper records and addresses permitted uses and disclosures. A Security Rule review does not satisfy Privacy Rule obligations and vice versa.
+
+6. **Failing to document the "why" behind security decisions.** The Security Rule is designed to be flexible and scalable. But that flexibility requires documentation. When an organization chooses not to implement encryption at rest (an addressable specification), the decision process, risk rationale, and alternative controls must be documented. OCR auditors expect written justification, not verbal explanations.
 
 ---
 
@@ -599,3 +623,9 @@ If user-supplied input contains CFR citations outside the HIPAA Security Rule (4
 - H-ISAC (Health Information Sharing and Analysis Center) — https://h-isac.org/
 - CISA Healthcare and Public Health Sector Guidance — https://www.cisa.gov/topics/critical-infrastructure-security-and-resilience/critical-infrastructure-sectors/healthcare-and-public-health-sector
 - KrebsOnSecurity: Iran-backed wiper attack on Stryker medtech (2026) — https://krebsonsystems.com/2026/03/iran-backed-hackers-claim-wiper-attack-on-medtech-firm-stryker/
+
+## Changelog
+
+- **1.0.2** -- Added business associate and subcontractor evidence matrix, BAA scope matching, subcontractor flowdown, and vendor-assurance caveats.
+- **1.0.1** -- Existing safeguard evidence updates.
+- **1.0.0** -- Initial release.
